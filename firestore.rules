@@ -39,17 +39,6 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // Kept as standard identity guards for any future authenticated data.
-    function uidUnchanged() {
-      return !('uid' in request.resource.data) ||
-        (isAuthenticated() && request.resource.data.uid == request.auth.uid);
-    }
-
-    function uidNotModified() {
-      return !('uid' in request.resource.data) ||
-        request.resource.data.uid == resource.data.uid;
-    }
-
     function hasExactKeys(data, fields) {
       return data.keys().hasAll(fields) && data.keys().hasOnly(fields);
     }
@@ -103,7 +92,7 @@ service cloud.firestore {
       // Anyone may add one strictly shaped, timestamped share. There are no
       // update/delete permissions, so a posted share cannot be altered later.
       allow create: if isValidShare(request.resource.data);
-      allow update: if false && isValidShare(request.resource.data) && uidNotModified();
+      allow update: if false;
       allow delete: if false;
     }
 
@@ -113,7 +102,6 @@ service cloud.firestore {
     function signedIn() { return isAuthenticated(); }
     function isSelf(uid) { return isOwner(uid); }
     function playlistMember(data) { return signedIn() && request.auth.uid in data.memberIds; }
-    function friendshipMember(data) { return signedIn() && request.auth.uid in data.members; }
 
     match /users/{uid} {
       allow read: if signedIn();

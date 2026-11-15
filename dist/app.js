@@ -237,6 +237,7 @@ function renderSelectedTrack() {
   const track = state.selectedTrack;
   if (!track) {
     selectedTrack.hidden = true;
+    shareForm.hidden = true;
     shareButton.disabled = true;
     shareStatus.textContent = "";
     return;
@@ -266,6 +267,7 @@ function renderSelectedTrack() {
   addAnother.addEventListener("click", clearSong);
   selectedTrack.append(summary, addAnother);
   selectedTrack.hidden = false;
+  shareForm.hidden = false;
   shareButton.disabled = false;
   shareStatus.textContent = "";
   updatePlaybackUI();
