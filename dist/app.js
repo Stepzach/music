@@ -26,12 +26,17 @@ const feedStatus = $("#feed-status");
 const feedList = $("#feed-list");
 const feedCount = $("#feed-count");
 const toastRoot = $("#toast-root");
+const shareToggle = $("#share-toggle");
+const shareContent = $("#share-content");
+const shareTitle = $("#share-title");
+const DISCO_ENGINE_URL = "./disco-engine.js";
 
 const state = {
   selectedTrack: null,
   searchVersion: 0,
-  currentShareId: null,
+  currentPlaybackKey: null,
   currentPreviewUrl: "",
+  discoPartyOn: false,
   shares: [],
 };
 
@@ -42,11 +47,6 @@ const placeholderArtwork = `data:image/svg+xml;charset=UTF-8,${encodeURIComponen
     <circle cx="40" cy="40" r="7" fill="#fffefa"/>
   </svg>
 `)}`;
-
-function setText(element, value) {
-  element.textContent = value || "";
-  return element;
-}
 
 function createElement(tag, className, text) {
   const element = document.createElement(tag);
@@ -84,6 +84,62 @@ function toast(message, type = "success") {
   toastRoot.append(notice);
   window.setTimeout(() => notice.remove(), 3600);
 }
+
+let discoPauseTimer = 0;
+
+// Load the exact CodePen engine after the app has been initialized. The engine
+// injects its own Three.js ball and the moving light canvas.
+import(DISCO_ENGINE_URL).catch((error) => {
+  console.warn("The disco animation could not load.", error);
+});
+
+function cueDisco() {
+  window.__discoCue = true;
+  window.dispatchEvent(new Event("disco:cue"));
+}
+
+// The exact reference engine is loaded in index.html. It uses this event
+// contract to run its own Three.js ball and full-screen moving light canvas.
+window.addEventListener("disco:ready", cueDisco, { once: true });
+window.setTimeout(cueDisco, 2800);
+
+function setDiscoParty(on) {
+  window.clearTimeout(discoPauseTimer);
+  if (on) {
+    window.dispatchEvent(new CustomEvent("disco:pause", { detail: false }));
+    if (!state.discoPartyOn) {
+      state.discoPartyOn = true;
+      window.dispatchEvent(new CustomEvent("disco:party", {
+        detail: { on: true, getBeat: () => audio.currentTime * 2 },
+      }));
+    }
+    return;
+  }
+
+  if (!state.discoPartyOn) return;
+  state.discoPartyOn = false;
+  window.dispatchEvent(new CustomEvent("disco:party", {
+    detail: { on: false, getBeat: () => audio.currentTime * 2 },
+  }));
+  // Preserve the reference engine's own fade-out before putting it to sleep.
+  discoPauseTimer = window.setTimeout(() => {
+    window.dispatchEvent(new CustomEvent("disco:pause", { detail: true }));
+  }, 800);
+}
+
+function setComposerExpanded(expanded) {
+  shareContent.hidden = !expanded;
+  shareToggle.setAttribute("aria-expanded", String(expanded));
+  shareTitle.textContent = expanded ? "Share a song:" : "Share a song ?";
+}
+
+shareToggle.addEventListener("click", () => {
+  const expanded = shareContent.hidden;
+  setComposerExpanded(expanded);
+  if (expanded) searchInput.focus();
+});
+
+setComposerExpanded(false);
 
 function debounce(callback, delay = 320) {
   let timer;
@@ -182,28 +238,43 @@ function renderSelectedTrack() {
   if (!track) {
     selectedTrack.hidden = true;
     shareButton.disabled = true;
-    shareStatus.textContent = "Choose a song first.";
+    shareStatus.textContent = "";
     return;
   }
 
   const copy = createElement("div", "result-copy");
   copy.append(createElement("strong", "", track.title), createElement("span", "", `${track.artist} · ${track.album}`));
-  const change = createElement("button", "change-song", "Change");
-  change.type = "button";
-  change.addEventListener("click", () => {
-    searchInput.focus();
-    searchInput.select();
-  });
-  selectedTrack.append(image(track.artwork, "", "cover"), copy, change);
+  const preview = createElement("button", "artwork-preview");
+  preview.type = "button";
+  preview.dataset.playbackKey = "composer-preview";
+  preview.dataset.songTitle = track.title;
+  preview.setAttribute("aria-label", `Preview ${track.title}`);
+  preview.setAttribute("aria-pressed", "false");
+  preview.addEventListener("click", () => toggleTrackPreview(track, "composer-preview"));
+  preview.append(image(track.artwork, "", "cover"), createElement("span", "artwork-play-icon", "▶"));
+
+  const remove = createElement("button", "remove-song", "×");
+  remove.type = "button";
+  remove.setAttribute("aria-label", `Remove ${track.title}`);
+  remove.addEventListener("click", clearSong);
+
+  const summary = createElement("div", "selected-song-summary");
+  summary.append(preview, copy, remove);
+
+  const addAnother = createElement("button", "add-another-song", "Add another song");
+  addAnother.type = "button";
+  addAnother.addEventListener("click", clearSong);
+  selectedTrack.append(summary, addAnother);
   selectedTrack.hidden = false;
   shareButton.disabled = false;
-  shareStatus.textContent = "Ready when you are.";
+  shareStatus.textContent = "";
+  updatePlaybackUI();
 }
 
 function selectTrack(track) {
+  if (state.currentPlaybackKey === "composer-preview") stopPlayback();
   state.selectedTrack = track;
   searchInput.value = `${track.title} — ${track.artist}`;
-  clearSearch.hidden = false;
   searchStatus.textContent = "";
   searchResults.replaceChildren();
   renderSelectedTrack();
@@ -211,10 +282,10 @@ function selectTrack(track) {
 }
 
 function clearSong() {
+  if (state.currentPlaybackKey === "composer-preview") stopPlayback();
   state.selectedTrack = null;
   state.searchVersion += 1;
   searchInput.value = "";
-  clearSearch.hidden = true;
   searchStatus.textContent = "";
   searchResults.replaceChildren();
   renderSelectedTrack();
@@ -223,7 +294,6 @@ function clearSong() {
 
 async function runSearch() {
   const term = searchInput.value;
-  clearSearch.hidden = term.length === 0;
   if (cleanText(term).length < 2) {
     state.searchVersion += 1;
     searchStatus.textContent = term ? "Keep typing…" : "";
@@ -287,10 +357,10 @@ shareForm.addEventListener("submit", async (event) => {
       createdAt: serverTimestamp(),
     });
     rememberName(senderNameInput.value ? senderName : "");
+    if (state.currentPlaybackKey === "composer-preview") stopPlayback();
     noteInput.value = "";
     state.selectedTrack = null;
     searchInput.value = "";
-    clearSearch.hidden = true;
     searchResults.replaceChildren();
     searchStatus.textContent = "";
     renderSelectedTrack();
@@ -341,41 +411,66 @@ function relativeTime(value) {
 }
 
 function updatePlaybackUI() {
-  const playing = Boolean(state.currentShareId && !audio.paused);
+  const playing = Boolean(state.currentPlaybackKey && !audio.paused);
   document.documentElement.classList.toggle("is-playing", playing);
+  setDiscoParty(playing);
+
   document.querySelectorAll(".play-button").forEach((button) => {
-    const current = playing && button.dataset.shareId === state.currentShareId;
+    const current = playing && button.dataset.playbackKey === state.currentPlaybackKey;
     button.classList.toggle("is-current", current);
     button.textContent = current ? "Ⅱ" : "▶";
     button.setAttribute("aria-label", current ? `Pause ${button.dataset.songTitle}` : `Play ${button.dataset.songTitle}`);
   });
+
+  document.querySelectorAll(".artwork-preview").forEach((button) => {
+    const current = playing && button.dataset.playbackKey === state.currentPlaybackKey;
+    button.classList.toggle("is-current", current);
+    const icon = button.querySelector(".artwork-play-icon");
+    if (icon) icon.textContent = current ? "Ⅱ" : "▶";
+    button.setAttribute("aria-label", current ? `Pause ${button.dataset.songTitle}` : `Preview ${button.dataset.songTitle}`);
+    button.setAttribute("aria-pressed", String(current));
+  });
 }
 
-async function togglePlayback(share) {
-  const track = trackFromShare(share);
+function stopPlayback() {
+  audio.pause();
+  state.currentPlaybackKey = null;
+  state.currentPreviewUrl = "";
+  updatePlaybackUI();
+}
+
+function updateMediaSession(track) {
+  if (!navigator.mediaSession || typeof MediaMetadata === "undefined") return;
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: track.title,
+    artist: track.artist,
+    album: track.album,
+    artwork: track.artwork ? [{ src: track.artwork, sizes: "600x600", type: "image/jpeg" }] : [],
+  });
+}
+
+async function toggleTrackPreview(track, playbackKey) {
   if (!track.previewUrl) {
     toast("This song doesn’t have a preview.", "error");
     return;
   }
-  if (state.currentShareId === share.id && !audio.paused) {
+  if (state.currentPlaybackKey === playbackKey && !audio.paused) {
     audio.pause();
+    // Some browsers report the pause state before dispatching the media event.
+    // Update immediately so the button and lights never look stuck playing.
+    updatePlaybackUI();
     return;
   }
-  state.currentShareId = share.id;
+  state.currentPlaybackKey = playbackKey;
   state.currentPreviewUrl = track.previewUrl;
   if (audio.src !== track.previewUrl) audio.src = track.previewUrl;
   try {
     await audio.play();
-    if ("mediaSession" in navigator) {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: track.title,
-        artist: track.artist,
-        album: track.album,
-        artwork: track.artwork ? [{ src: track.artwork, sizes: "600x600", type: "image/jpeg" }] : [],
-      });
-    }
+    updateMediaSession(track);
+    // Keep the visual state in lockstep even before a browser dispatches play.
+    updatePlaybackUI();
   } catch (error) {
-    state.currentShareId = null;
+    state.currentPlaybackKey = null;
     state.currentPreviewUrl = "";
     updatePlaybackUI();
     toast("Preview couldn’t play in this browser.", "error");
@@ -385,12 +480,12 @@ async function togglePlayback(share) {
 audio.addEventListener("play", updatePlaybackUI);
 audio.addEventListener("pause", updatePlaybackUI);
 audio.addEventListener("ended", () => {
-  state.currentShareId = null;
+  state.currentPlaybackKey = null;
   state.currentPreviewUrl = "";
   updatePlaybackUI();
 });
 audio.addEventListener("error", () => {
-  state.currentShareId = null;
+  state.currentPlaybackKey = null;
   state.currentPreviewUrl = "";
   updatePlaybackUI();
 });
@@ -400,10 +495,10 @@ function renderShare(share) {
   const article = createElement("article", "feed-item");
   const play = createElement("button", "play-button", "▶");
   play.type = "button";
-  play.dataset.shareId = share.id;
+  play.dataset.playbackKey = `share:${share.id}`;
   play.dataset.songTitle = track.title;
   play.setAttribute("aria-label", `Play ${track.title}`);
-  play.addEventListener("click", () => togglePlayback(share));
+  play.addEventListener("click", () => toggleTrackPreview(track, `share:${share.id}`));
 
   const copy = createElement("div", "track-copy");
   copy.append(
@@ -437,7 +532,7 @@ function renderFeed() {
   feedStatus.textContent = "";
   feedCount.textContent = state.shares.length ? `${state.shares.length} ${state.shares.length === 1 ? "song" : "songs"}` : "";
   if (!state.shares.length) {
-    feedList.append(createElement("p", "empty-feed", "Nothing here yet. Put the first song on."));
+    feedList.append(createElement("p", "empty-feed", "No songs yet."));
     return;
   }
   const fragment = document.createDocumentFragment();

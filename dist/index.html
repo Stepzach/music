@@ -14,61 +14,53 @@
   <body>
     <a class="skip-link" href="#feed">Skip to the feed</a>
 
-    <div class="disco-rig" aria-hidden="true">
-      <div class="disco-line"></div>
-      <div class="disco-ball"><span></span></div>
-    </div>
-    <div class="disco-wash" aria-hidden="true"></div>
-
     <header class="masthead">
-      <p class="eyebrow">a little music wall</p>
-      <h1>resonance</h1>
+      <h1 data-disco-target>resonance</h1>
       <p class="tagline">songs worth passing on.</p>
     </header>
 
     <main class="page-shell">
       <section class="composer" aria-labelledby="share-title">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">add one</p>
-            <h2 id="share-title">Share a song</h2>
+        <button id="share-toggle" class="composer-toggle" type="button" aria-expanded="false" aria-controls="share-content">
+          <span id="share-title">Share a song ?</span>
+          <span class="toggle-arrow" aria-hidden="true"></span>
+        </button>
+
+        <div id="share-content" class="composer-content" hidden>
+          <div class="song-picker">
+            <div class="search-field">
+              <label class="visually-hidden" for="song-search">Search songs</label>
+              <span class="search-icon" aria-hidden="true">⌕</span>
+              <input id="song-search" type="text" inputmode="search" enterkeyhint="search" autocomplete="off" placeholder="Search a song or artist" aria-controls="search-results" />
+              <button id="clear-search" class="clear-search" type="button" aria-label="Clear song search">×</button>
+            </div>
+            <div id="search-status" class="search-status" aria-live="polite"></div>
+            <div id="search-results" class="search-results" role="listbox" aria-label="Song results"></div>
           </div>
-          <p class="section-hint">Pick it. Say why, if you want.</p>
+
+          <div id="selected-track" class="selected-track" hidden></div>
+
+          <form id="share-form" class="share-form">
+            <div class="share-fields">
+              <label>
+                <span>Your name <em>optional</em></span>
+                <input id="sender-name" type="text" maxlength="40" autocomplete="name" placeholder="Someone" />
+              </label>
+              <label>
+                <span>A small note <em>optional</em></span>
+                <input id="song-note" type="text" maxlength="280" placeholder="for the walk home" />
+              </label>
+              <button id="share-button" class="share-button" type="submit" disabled>Share</button>
+            </div>
+            <p id="share-status" class="form-status" aria-live="polite"></p>
+          </form>
         </div>
-
-        <div class="song-picker">
-          <label class="search-field" for="song-search">
-            <span class="search-icon" aria-hidden="true">⌕</span>
-            <input id="song-search" type="search" autocomplete="off" placeholder="Search a song or artist" aria-controls="search-results" />
-            <button id="clear-search" class="clear-search" type="button" aria-label="Clear song search" hidden>×</button>
-          </label>
-          <div id="search-status" class="search-status" aria-live="polite"></div>
-          <div id="search-results" class="search-results" role="listbox" aria-label="Song results"></div>
-        </div>
-
-        <div id="selected-track" class="selected-track" hidden></div>
-
-        <form id="share-form" class="share-form">
-          <div class="share-fields">
-            <label>
-              <span>Your name <em>optional</em></span>
-              <input id="sender-name" type="text" maxlength="40" autocomplete="name" placeholder="Someone" />
-            </label>
-            <label>
-              <span>A small note <em>optional</em></span>
-              <input id="song-note" type="text" maxlength="280" placeholder="for the walk home" />
-            </label>
-            <button id="share-button" class="share-button" type="submit" disabled>Put it on</button>
-          </div>
-          <p id="share-status" class="form-status" aria-live="polite">Choose a song first.</p>
-        </form>
       </section>
 
       <section id="feed" class="feed" aria-labelledby="feed-title">
         <div class="section-heading feed-heading">
           <div>
-            <p class="eyebrow">the wall</p>
-            <h2 id="feed-title">Listening now</h2>
+            <h2 id="feed-title">Recently shared</h2>
           </div>
           <p id="feed-count" class="section-hint"></p>
         </div>
@@ -76,11 +68,6 @@
         <div id="feed-list" class="feed-list"></div>
       </section>
     </main>
-
-    <footer>
-      <span>Press play. Pass it on.</span>
-      <span>30 second previews</span>
-    </footer>
 
     <audio id="preview-audio" preload="none"></audio>
     <div id="toast-root" class="toast-root" aria-live="polite" aria-atomic="true"></div>
