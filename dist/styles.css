@@ -116,9 +116,9 @@ a { color: inherit; }
   top: 18px;
   right: 18px;
   display: flex;
-  width: 65px;
-    height: 28px;
-  padding: 1px;
+  width: 65px !important;
+    height: 28px !important;
+  padding: 2px;
   border: 1px solid var(--quiet-control-border);
   border-radius: 7px;
   background: var(--quiet-control);
