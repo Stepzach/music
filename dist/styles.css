@@ -10,7 +10,7 @@
   --control: #deddd6;
   --placeholder: #94938e;
   --cover: #d9d7df;
-  --note-surface: #e9e9ed;
+  --note-surface: #e9e9ed7a;
   --note-ink: #1b1b1f;
   --toast-border: #dedde6;
   --toast-error-border: #e3bcbc;
@@ -116,8 +116,8 @@ a { color: inherit; }
   top: 18px;
   right: 18px;
   display: flex;
-  width: 52px;
-  height: 24px;
+  width: 65px;
+    height: 28px;
   padding: 1px;
   border: 1px solid var(--quiet-control-border);
   border-radius: 7px;
@@ -142,7 +142,7 @@ a { color: inherit; }
   border: 1px solid transparent;
   border-radius: 5px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 16px;
   opacity: .58;
   transition: background .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease, opacity .16s ease;
 }
@@ -156,7 +156,7 @@ a { color: inherit; }
   opacity: 1;
 }
 
-.theme-toggle:hover { border-color: var(--muted); background: var(--quiet-control-hover); }
+.theme-toggle:hover { background: var(--quiet-control-hover); }
 .theme-toggle:active { transform: scale(.92); }
 
 .masthead {
@@ -176,10 +176,10 @@ h1 {
 }
 
 .tagline {
-  margin-top: 8px;
+  margin-top: 2px;
   color: var(--muted);
   font-size: 17px;
-  font-weight: 300;
+ 
   line-height: 1.4;
 }
 
@@ -550,10 +550,10 @@ html[data-theme="dark"] .play-button { color: #151515; }
 
 .feed-item {
   padding: 15px 0;
-  border-bottom: 1px dotted var(--line);
+  border-bottom: 1px dashed var(--line);
 }
 
-.feed-item:first-child { border-top: 1px dotted var(--line); }
+.feed-item:first-child { border-top: 1px dashed var(--line); }
 
 .share-meta {
   display: flex;
@@ -630,7 +630,7 @@ html[data-theme="dark"] .play-button { color: #151515; }
 .provider-set {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 2px;
 }
 
 .quick-link {
@@ -656,8 +656,8 @@ html[data-theme="dark"] .play-button { color: #151515; }
 .provider-icon svg,
 .provider-icon img {
   display: block;
-  width: 19px;
-  height: 19px;
+  width: 15px;
+  height: 15px;
 }
 
 .provider-icon img { object-fit: contain; }
@@ -752,7 +752,7 @@ html[data-theme="dark"] .play-button { color: #151515; }
 }
 
 @media (max-width: 640px) {
-  .masthead { padding-top: 122px; padding-bottom: 28px; }
+  .masthead { padding-top: 100px; padding-bottom: 28px; }
   .page-shell { width: min(100% - 32px, 940px); }
   .section-heading { align-items: start; flex-direction: column; gap: 8px; }
   .section-hint { max-width: none; text-align: left; }
