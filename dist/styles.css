@@ -116,7 +116,7 @@ a { color: inherit; }
   top: 18px;
   right: 18px;
   display: flex;
-  width: 65px !important;
+  width: 75px !important;
     height: 28px !important;
   padding: 2px;
   border: 1px solid var(--quiet-control-border);
@@ -143,6 +143,7 @@ a { color: inherit; }
   border-radius: 5px;
   color: var(--muted);
   font-size: 16px;
+      height: 100%;
   opacity: .58;
   transition: background .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease, opacity .16s ease;
 }
@@ -618,7 +619,7 @@ html[data-theme="dark"] .play-button { color: #151515; }
 
 .track-copy { grid-area: content; align-self: end; padding-bottom: 4px; }
 
-.track-copy h3 { font-size: 19px;     line-height: 0.9; }
+.track-copy h3 { font-size: 19px;     line-height: 0.9; overflow: visible; }
 
 .shared-meta {
   font-family: inherit;
