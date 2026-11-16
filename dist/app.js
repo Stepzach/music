@@ -868,7 +868,6 @@ function renderShare(share) {
   );
   const metaActions = createElement("div", "share-meta-actions");
   const links = createElement("div", "quick-links");
-  links.append(createElement("span", "open-in", "Open in:"));
   tracks.forEach((track) => {
     const providers = createElement("span", "provider-set");
     providers.setAttribute("aria-label", `Open ${track.title}`);
