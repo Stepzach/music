@@ -273,22 +273,42 @@ function playableTracks(payload) {
     .slice(0, 8);
 }
 
-async function fetchCatalog(queryText) {
+function normalizeDeezerTrack(item) {
+  return {
+    id: `deezer-${String(item?.id || songKey({ artistName: item?.artist?.name, trackName: item?.title }))}`,
+    title: cleanText(item?.title || item?.title_short || "Unknown song", 120),
+    artist: cleanText(item?.artist?.name || "Unknown artist", 120),
+    album: cleanText(item?.album?.title || "Single", 140),
+    artwork: safeUrl(item?.album?.cover_xl || item?.album?.cover_big || item?.album?.cover_medium || ""),
+    previewUrl: safeUrl(item?.preview),
+    appleUrl: "",
+    durationMs: Math.max(0, Math.min((Number(item?.duration) || 0) * 1000, 900000)),
+    explicit: Boolean(item?.explicit_lyrics),
+  };
+}
+
+function isAppleMobile() {
+  const userAgent = navigator.userAgent || "";
+  return /iPad|iPhone|iPod/.test(userAgent)
+    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+async function fetchAppleCatalog(queryText) {
   const controller = typeof AbortController === "function" ? new AbortController() : null;
   const timeout = controller ? window.setTimeout(() => controller.abort(), 8500) : null;
 
   try {
     const response = await fetch(catalogUrl(queryText), { signal: controller?.signal });
     if (!response.ok) throw new Error(`Music search returned ${response.status}.`);
-    return await response.json();
+    return playableTracks(await response.json());
   } finally {
     if (timeout) window.clearTimeout(timeout);
   }
 }
 
-function fetchCatalogJsonp(queryText) {
+function fetchJsonp(callbackPrefix, urlForCallback) {
   return new Promise((resolve, reject) => {
-    const callbackName = `resonanceSearch${Date.now()}${Math.random().toString(36).slice(2)}`;
+    const callbackName = `${callbackPrefix}${Date.now()}${Math.random().toString(36).slice(2)}`;
     const script = document.createElement("script");
     let settled = false;
     let timeout;
@@ -305,9 +325,27 @@ function fetchCatalogJsonp(queryText) {
 
     window[callbackName] = (payload) => finish(null, payload);
     script.onerror = () => finish(new Error("Couldn’t reach the music catalogue."));
-    script.src = catalogUrl(queryText, callbackName);
+    script.src = urlForCallback(callbackName);
     document.head.append(script);
   });
+}
+
+function fetchAppleCatalogJsonp(queryText) {
+  return fetchJsonp("resonanceAppleSearch", (callbackName) => catalogUrl(queryText, callbackName))
+    .then(playableTracks);
+}
+
+function deezerCatalogUrl(queryText, callbackName) {
+  const params = new URLSearchParams({ q: queryText, limit: "18", output: "jsonp", callback: callbackName });
+  return `https://api.deezer.com/search?${params.toString()}`;
+}
+
+function fetchDeezerCatalogJsonp(queryText) {
+  return fetchJsonp("resonanceDeezerSearch", (callbackName) => deezerCatalogUrl(queryText, callbackName))
+    .then((payload) => (payload?.data || [])
+      .map(normalizeDeezerTrack)
+      .filter((track) => track.title && track.artist && track.previewUrl)
+      .slice(0, 8));
 }
 
 async function searchCatalog(term) {
@@ -315,19 +353,24 @@ async function searchCatalog(term) {
   if (queryText.length < 2) return [];
 
   const requestId = ++state.searchVersion;
-  let payload;
-  try {
-    payload = await fetchCatalog(queryText);
-  } catch {
+  const sources = isAppleMobile()
+    ? [fetchDeezerCatalogJsonp, fetchAppleCatalog, fetchAppleCatalogJsonp]
+    : [fetchAppleCatalog, fetchAppleCatalogJsonp, fetchDeezerCatalogJsonp];
+  let lastError;
+
+  for (const source of sources) {
     if (requestId !== state.searchVersion) return [];
     try {
-      payload = await fetchCatalogJsonp(queryText);
-    } catch {
-      throw new Error("Couldn’t reach the music catalogue.");
+      const tracks = await source(queryText);
+      if (requestId !== state.searchVersion) return [];
+      if (tracks.length) return tracks;
+    } catch (error) {
+      lastError = error;
     }
   }
 
-  return requestId === state.searchVersion ? playableTracks(payload) : [];
+  if (lastError) throw new Error("Couldn’t reach the music catalogue.");
+  return [];
 }
 
 function renderSearchResults(tracks) {
