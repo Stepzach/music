@@ -497,17 +497,33 @@ const PALETTE = {
 
   // ---------- Hanging position and size ----------
   let size = 160, lineLen = 120;
+  let lockedMobileSize = 0, lockedMobileLineLen = 0, lockedMobileWidth = 0;
   function layout() {
     const W = window.innerWidth, H = window.innerHeight;
-    size = Math.round(Math.min(220, Math.max(96, Math.min(W, H) * 0.34)));
+    const isMobile = W <= 640;
+    const keepMobileLayout = isMobile && lockedMobileSize && Math.abs(W - lockedMobileWidth) < 2;
+    let nextSize = Math.round(Math.min(220, Math.max(96, Math.min(W, H) * 0.34)));
+    let nextLineLen = Math.round(H * 0.16);
     const target = document.querySelector('[data-disco-target]');
-    if (target) {
+    // Mobile browsers fire resize events as their toolbar folds while a page
+    // scrolls. Keep the original top-of-page ball layout through that change.
+    if (target && !keepMobileLayout && (!isMobile || window.scrollY < 2)) {
       const top = target.getBoundingClientRect().top;
-      const gap = Math.max(16, size * 0.12);
-      size = Math.round(Math.min(size, Math.max(64, top - gap - 24)));   // never reaches the words
-      lineLen = Math.max(24, Math.round(top - gap - size));
+      const gap = Math.max(16, nextSize * 0.12);
+      nextSize = Math.round(Math.min(nextSize, Math.max(64, top - gap - 24)));   // never reaches the words
+      nextLineLen = Math.max(24, Math.round(top - gap - nextSize));
+    }
+    if (keepMobileLayout) {
+      size = lockedMobileSize;
+      lineLen = lockedMobileLineLen;
     } else {
-      lineLen = Math.round(H * 0.16);
+      size = nextSize;
+      lineLen = nextLineLen;
+      if (isMobile) {
+        lockedMobileSize = size;
+        lockedMobileLineLen = lineLen;
+        lockedMobileWidth = W;
+      }
     }
     // the line meets the top of the ball, not the top of its square canvas
     const inset = Math.round((size / 2) * (1 - ballFrac));

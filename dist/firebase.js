@@ -1,7 +1,13 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-app.js";
 import {
+  getAuth,
+  signInAnonymously,
+} from "https://www.gstatic.com/firebasejs/11.4.0/firebase-auth.js";
+import {
   addDoc,
   collection,
+  deleteDoc,
+  doc,
   getFirestore,
   limit,
   onSnapshot,
@@ -20,6 +26,41 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
 const db = getFirestore(app);
+let anonymousSignIn;
 
-export { addDoc, collection, db, limit, onSnapshot, orderBy, query, serverTimestamp };
+async function getCurrentUser() {
+  if (typeof auth.authStateReady === "function") await auth.authStateReady();
+  return auth.currentUser;
+}
+
+async function ensureAnonymousUser() {
+  const currentUser = await getCurrentUser();
+  if (currentUser) return currentUser;
+
+  if (!anonymousSignIn) {
+    anonymousSignIn = signInAnonymously(auth)
+      .then(({ user }) => user)
+      .catch((error) => {
+        anonymousSignIn = null;
+        throw error;
+      });
+  }
+  return anonymousSignIn;
+}
+
+export {
+  addDoc,
+  collection,
+  db,
+  deleteDoc,
+  doc,
+  ensureAnonymousUser,
+  getCurrentUser,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+};

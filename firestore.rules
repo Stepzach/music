@@ -7,6 +7,8 @@
 // Fields (all required and immutable after creation):
 //   - senderName: string, 1–40 characters; a display name only
 //   - note: string, 0–280 characters
+//   - ownerUid: string, 1–128 characters; opaque Firebase Auth UID used only
+//     to let the posting browser delete its own share
 //   - createdAt: timestamp equal to the server time at creation
 //   - tracks: list of 1–12 maps, each with exactly these fields:
 //       id (string, 1–60 URL-safe characters), title (string, 1–120),
@@ -17,9 +19,10 @@
 //   - track: the same single-track map is accepted only for legacy documents.
 //
 // The public music wall is deliberately anonymous because the product has no
-// sign-in. It exposes only the submitter's chosen display name and note—never
-// an email, UID, or profile document. Reads and validated creates are public;
-// edits and deletes are never public.
+// sign-in. It exposes only the submitter's chosen display name and note in the
+// app UI. An opaque Firebase Auth UID is stored solely for deletion ownership;
+// no email or profile document is used. Reads are public, writes are validated,
+// posts remain immutable, and only their original owner may delete them.
 //
 // Legacy collections from the earlier signed-in Resonance app are retained
 // below with their existing authenticated-only behavior: users, handles,
@@ -95,11 +98,12 @@ service cloud.firestore {
       return data is map &&
         validString(data.senderName, 1, 40) &&
         validString(data.note, 0, 280) &&
+        validString(data.ownerUid, 1, 128) &&
         data.createdAt is timestamp && data.createdAt == request.time &&
         (
-          (hasExactKeys(data, ['senderName', 'note', 'createdAt', 'track']) &&
+          (hasExactKeys(data, ['senderName', 'note', 'ownerUid', 'createdAt', 'track']) &&
             isValidTrack(data.track)) ||
-          (hasExactKeys(data, ['senderName', 'note', 'createdAt', 'tracks']) &&
+          (hasExactKeys(data, ['senderName', 'note', 'ownerUid', 'createdAt', 'tracks']) &&
             isValidTracks(data.tracks))
         );
     }
@@ -110,11 +114,17 @@ service cloud.firestore {
     match /shares/{shareId} {
       // The requested no-login experience requires an anonymous readable wall.
       allow read: if true;
-      // Anyone may add one strictly shaped, timestamped share. There are no
-      // update/delete permissions, so a posted share cannot be altered later.
-      allow create: if isValidShare(request.resource.data);
+      // A browser gets an invisible anonymous Auth identity when it posts.
+      // That identity must match the immutable ownerUid in its strictly shaped
+      // document, and cannot be used to alter another person's post.
+      allow create: if isAuthenticated() &&
+        isValidShare(request.resource.data) &&
+        request.resource.data.ownerUid == request.auth.uid;
       allow update: if false;
-      allow delete: if false;
+      allow delete: if isAuthenticated() &&
+        resource.data.keys().hasAll(['ownerUid']) &&
+        validString(resource.data.ownerUid, 1, 128) &&
+        resource.data.ownerUid == request.auth.uid;
     }
 
     // =============================================================

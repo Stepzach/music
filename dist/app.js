@@ -2,6 +2,10 @@ import {
   addDoc,
   collection,
   db,
+  deleteDoc,
+  doc,
+  ensureAnonymousUser,
+  getCurrentUser,
   limit,
   onSnapshot,
   orderBy,
@@ -13,7 +17,6 @@ const $ = (selector) => document.querySelector(selector);
 
 const audio = $("#preview-audio");
 const searchInput = $("#song-search");
-const clearSearch = $("#clear-search");
 const searchStatus = $("#search-status");
 const searchResults = $("#search-results");
 const selectedTrack = $("#selected-track");
@@ -26,9 +29,6 @@ const feedStatus = $("#feed-status");
 const feedList = $("#feed-list");
 const feedCount = $("#feed-count");
 const toastRoot = $("#toast-root");
-const shareToggle = $("#share-toggle");
-const shareContent = $("#share-content");
-const shareTitle = $("#share-title");
 const themeToggle = $("#theme-toggle");
 const themeIcon = $("#theme-icon");
 const themeColor = $("meta[name='theme-color']");
@@ -47,9 +47,12 @@ const state = {
   currentPreviewUrl: "",
   discoPartyOn: false,
   shares: [],
+  ownerUid: "",
 };
 const deezerPreviewCache = new Map();
 const deezerPreviewRequests = new Map();
+const appleUrlCache = new Map();
+const appleUrlRequests = new Map();
 let feedPreviewRefreshTimer = 0;
 
 function storedTheme() {
@@ -75,7 +78,7 @@ function applyTheme(theme) {
     themeToggle.setAttribute("aria-label", isDark ? "Use light mode" : "Use dark mode");
     themeToggle.title = isDark ? "Use light mode" : "Use dark mode";
   }
-  if (themeIcon) themeIcon.textContent = isDark ? "☀" : "☾";
+  if (themeIcon) themeIcon.textContent = isDark ? "☾" : "☀";
   if (themeColor) themeColor.setAttribute("content", isDark ? "#141416" : "#fffefa");
 }
 
@@ -211,20 +214,6 @@ function setDiscoParty(on) {
     window.dispatchEvent(new CustomEvent("disco:pause", { detail: true }));
   }, 800);
 }
-
-function setComposerExpanded(expanded) {
-  shareContent.hidden = !expanded;
-  shareToggle.setAttribute("aria-expanded", String(expanded));
-  shareTitle.textContent = expanded ? "Share a song:" : "Share a song ?";
-}
-
-shareToggle.addEventListener("click", () => {
-  const expanded = shareContent.hidden;
-  setComposerExpanded(expanded);
-  if (expanded) searchInput.focus();
-});
-
-setComposerExpanded(false);
 
 function debounce(callback, delay = 320) {
   let timer;
@@ -502,9 +491,8 @@ function clearSearchQuery() {
 
 function selectTrack(track) {
   if (state.selectedTracks.some((selected) => selected.id === track.id)) {
+    searchInput.blur();
     toast("Already added.", "error");
-    searchInput.focus();
-    searchInput.select();
     return;
   }
   if (state.selectedTracks.length >= MAX_TRACKS_PER_SHARE) {
@@ -513,16 +501,15 @@ function selectTrack(track) {
   }
 
   state.selectedTracks.push(track);
+  searchInput.blur();
   clearSearchQuery();
   renderSelectedTracks();
-  searchInput.focus();
 }
 
 function removeSelectedTrack(trackId) {
   if (state.currentPlaybackKey === `draft:${trackId}`) stopPlayback();
   state.selectedTracks = state.selectedTracks.filter((track) => track.id !== trackId);
   renderSelectedTracks();
-  if (!state.selectedTracks.length) searchInput.focus();
 }
 
 async function runSearch() {
@@ -558,8 +545,6 @@ searchInput.addEventListener("keydown", (event) => {
     searchStatus.textContent = "";
   }
 });
-clearSearch.addEventListener("click", clearSearchQuery);
-
 function preferredName() {
   try { return localStorage.getItem("resonance-name") || ""; } catch { return ""; }
 }
@@ -581,15 +566,24 @@ shareForm.addEventListener("submit", async (event) => {
   const senderName = cleanText(senderNameInput.value, 40) || "someone";
   const note = cleanText(noteInput.value, 280);
   shareButton.disabled = true;
-  shareStatus.textContent = "Adding it…";
+  shareStatus.textContent = "Uploading…";
+  toast("Uploading.");
   try {
-    await Promise.all(state.selectedTracks.map((track) => refreshDeezerPreview(track).then((previewUrl) => {
+    const owner = await ensureAnonymousUser();
+    state.ownerUid = owner.uid;
+    await Promise.all(state.selectedTracks.map(async (track) => {
+      const [previewUrl, appleUrl] = await Promise.all([
+        refreshDeezerPreview(track),
+        resolveAppleMusicUrl(track),
+      ]);
       if (previewUrl) track.previewUrl = previewUrl;
-    })));
+      if (appleUrl) track.appleUrl = appleUrl;
+    }));
     await addDoc(collection(db, "shares"), {
       tracks: state.selectedTracks,
       senderName,
       note,
+      ownerUid: state.ownerUid,
       createdAt: serverTimestamp(),
     });
     rememberName(senderNameInput.value ? senderName : "");
@@ -598,11 +592,10 @@ shareForm.addEventListener("submit", async (event) => {
     state.selectedTracks = [];
     clearSearchQuery();
     renderSelectedTracks();
-    toast("It’s on the wall.");
   } catch (error) {
     shareButton.disabled = false;
-    shareStatus.textContent = "Couldn’t add that song. Try again.";
-    toast("The song wasn’t added. Check the Firebase rules, then try again.", "error");
+    shareStatus.textContent = "Couldn’t upload that. Try again.";
+    toast("Couldn’t upload that. Try again.", "error");
     console.error(error);
   }
 });
@@ -618,7 +611,11 @@ function trackFromRaw(raw) {
     previewUrl: safeUrl(value.previewUrl),
     appleUrl: safeUrl(value.appleUrl),
   };
-  return { ...track, previewUrl: cachedDeezerPreview(track) || track.previewUrl };
+  return {
+    ...track,
+    previewUrl: cachedDeezerPreview(track) || track.previewUrl,
+    appleUrl: cachedAppleMusicUrl(track) || track.appleUrl,
+  };
 }
 
 function tracksFromShare(share) {
@@ -630,10 +627,89 @@ function tracksFromShare(share) {
     .map(trackFromRaw);
 }
 
+function localAppleMusicUrl(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.hostname !== "music.apple.com") return "";
+    const path = url.pathname.split("/");
+    if (/^[a-z]{2}$/i.test(path[1] || "")) path[1] = localCountry().toLowerCase();
+    url.pathname = path.join("/");
+    return url.href;
+  } catch {
+    return "";
+  }
+}
+
+function appleTrackKey(track) {
+  return `${track.id}:${cleanText(track.title, 120).toLowerCase()}:${cleanText(track.artist, 120).toLowerCase()}`;
+}
+
+function cachedAppleMusicUrl(track) {
+  const direct = localAppleMusicUrl(track.appleUrl);
+  return direct || appleUrlCache.get(appleTrackKey(track)) || "";
+}
+
+function appleResultScore(candidate, track) {
+  const title = cleanText(track.title, 120).toLowerCase();
+  const artist = cleanText(track.artist, 120).toLowerCase();
+  const candidateTitle = cleanText(candidate.title, 120).toLowerCase();
+  const candidateArtist = cleanText(candidate.artist, 120).toLowerCase();
+  return (candidateTitle === title ? 4 : candidateTitle.includes(title) || title.includes(candidateTitle) ? 2 : 0)
+    + (candidateArtist === artist ? 3 : candidateArtist.includes(artist) || artist.includes(candidateArtist) ? 1 : 0);
+}
+
+function resolveAppleMusicUrl(track) {
+  const known = cachedAppleMusicUrl(track);
+  if (known) return Promise.resolve(known);
+
+  const key = appleTrackKey(track);
+  if (appleUrlRequests.has(key)) return appleUrlRequests.get(key);
+
+  const request = (async () => {
+    const searchText = cleanText(`${track.title} ${track.artist}`, 240);
+    const sources = [fetchAppleCatalog, fetchAppleCatalogJsonp];
+    for (const source of sources) {
+      try {
+        const results = await source(searchText);
+        const match = [...results].sort((a, b) => appleResultScore(b, track) - appleResultScore(a, track))[0];
+        const url = localAppleMusicUrl(match?.appleUrl);
+        if (url) {
+          appleUrlCache.set(key, url);
+          return url;
+        }
+      } catch {
+        // The JSONP source below covers browsers that block a direct catalogue request.
+      }
+    }
+    return "";
+  })().finally(() => appleUrlRequests.delete(key));
+
+  appleUrlRequests.set(key, request);
+  return request;
+}
+
 function providerUrl(track, provider) {
   const text = encodeURIComponent(`${track.title} ${track.artist}`);
-  if (provider === "Apple Music") return track.appleUrl || `https://music.apple.com/us/search?term=${text}`;
+  if (provider === "Apple Music") {
+    return localAppleMusicUrl(track.appleUrl)
+      || `https://music.apple.com/${localCountry().toLowerCase()}/search?term=${text}`;
+  }
   return `https://open.spotify.com/search/${text}`;
+}
+
+async function deleteShare(share, button) {
+  if (!state.ownerUid || cleanText(share.ownerUid, 128) !== state.ownerUid) return;
+  if (!window.confirm("Are you sure?")) return;
+
+  button.disabled = true;
+  try {
+    await deleteDoc(doc(db, "shares", share.id));
+    toast("Deleted.");
+  } catch (error) {
+    button.disabled = false;
+    toast("Couldn’t delete that. Try again.", "error");
+    console.error(error);
+  }
 }
 
 function timestampValue(value) {
@@ -752,11 +828,41 @@ function renderShare(share) {
 
   const article = createElement("article", "feed-item");
 
-  const meta = createElement("p", "shared-meta share-meta");
-  meta.append(
+  const meta = createElement("div", "shared-meta share-meta");
+  const metaCopy = createElement("span", "share-meta-copy");
+  metaCopy.append(
     createElement("b", "", cleanText(share.senderName, 40) || "someone"),
     document.createTextNode(` · ${relativeTime(share.createdAt)}`)
   );
+  const metaActions = createElement("div", "share-meta-actions");
+  const links = createElement("div", "quick-links");
+  links.append(createElement("span", "open-in", "Open in:"));
+  tracks.forEach((track) => {
+    const providers = createElement("span", "provider-set");
+    providers.setAttribute("aria-label", `Open ${track.title}`);
+    ["Spotify", "Apple Music"].forEach((provider) => {
+      const link = createElement("a", `quick-link provider-link ${provider === "Spotify" ? "spotify-link" : "apple-music-link"}`);
+      link.href = providerUrl(track, provider);
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.setAttribute("aria-label", `Open ${track.title} in ${provider}`);
+      link.append(providerIcon(provider));
+      providers.append(link);
+    });
+    links.append(providers);
+  });
+  metaActions.append(links);
+
+  if (state.ownerUid && cleanText(share.ownerUid, 128) === state.ownerUid) {
+    const remove = createElement("button", "delete-share", "×");
+    remove.type = "button";
+    remove.setAttribute("aria-label", "Delete this share");
+    remove.title = "Delete this share";
+    remove.addEventListener("click", () => deleteShare(share, remove));
+    metaActions.append(remove);
+  }
+
+  meta.append(metaCopy, metaActions);
   article.append(meta);
 
   const trackList = createElement("div", "shared-tracks");
@@ -773,19 +879,7 @@ function renderShare(share) {
     const copy = createElement("div", "track-copy");
     copy.append(createElement("h3", "", track.title), createElement("p", "", track.artist));
 
-    const links = createElement("div", "quick-links");
-    links.append(createElement("span", "open-in", "Open in:"));
-    ["Spotify", "Apple Music"].forEach((provider) => {
-      const link = createElement("a", `quick-link provider-link ${provider === "Spotify" ? "spotify-link" : "apple-music-link"}`);
-      link.href = providerUrl(track, provider);
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      link.setAttribute("aria-label", `Open ${track.title} in ${provider}`);
-      link.append(providerIcon(provider));
-      links.append(link);
-    });
-
-    row.append(play, image(track.artwork, `Artwork for ${track.title}`), copy, links);
+    row.append(play, image(track.artwork, `Artwork for ${track.title}`), copy);
     trackList.append(row);
   });
   article.append(trackList);
@@ -829,6 +923,21 @@ function refreshFeedPreviews() {
     });
 }
 
+function refreshAppleMusicLinks() {
+  const tracks = new Map();
+  state.shares.forEach((share) => {
+    tracksFromShare(share).forEach((track) => {
+      if (!cachedAppleMusicUrl(track)) tracks.set(appleTrackKey(track), track);
+    });
+  });
+  if (!tracks.size) return;
+
+  void Promise.all([...tracks.values()].map((track) => resolveAppleMusicUrl(track)))
+    .then((urls) => {
+      if (urls.some(Boolean)) renderFeed();
+    });
+}
+
 function scheduleFeedPreviewRefresh() {
   window.clearTimeout(feedPreviewRefreshTimer);
   if (!state.shares.some((share) => tracksFromShare(share).some((track) => deezerTrackId(track)))) return;
@@ -838,11 +947,20 @@ function scheduleFeedPreviewRefresh() {
   }, DEEZER_PREVIEW_REFRESH_MS);
 }
 
+void getCurrentUser().then((user) => {
+  if (!user) return;
+  state.ownerUid = user.uid;
+  renderFeed();
+}).catch((error) => {
+  console.warn("Couldn’t restore this browser’s posting identity.", error);
+});
+
 const feedQuery = query(collection(db, "shares"), orderBy("createdAt", "desc"), limit(60));
 onSnapshot(feedQuery, (snapshot) => {
   state.shares = snapshot.docs.map((document) => ({ id: document.id, ...document.data() }));
   renderFeed();
   refreshFeedPreviews();
+  refreshAppleMusicLinks();
   scheduleFeedPreviewRefresh();
 }, (error) => {
   console.error(error);

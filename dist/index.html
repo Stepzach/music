@@ -21,12 +21,12 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300..700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="./styles.css?v=20261116-4" />
+    <link rel="stylesheet" href="./styles.css?v=20261116-5" />
   </head>
   <body>
     <a class="skip-link" href="#feed">Skip to the feed</a>
     <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Use dark mode" aria-pressed="false" title="Use dark mode">
-      <span id="theme-icon" aria-hidden="true">☾</span>
+      <span id="theme-icon" aria-hidden="true">☀</span>
     </button>
 
     <header class="masthead">
@@ -36,18 +36,14 @@
 
     <main class="page-shell">
       <section class="composer" aria-labelledby="share-title">
-        <button id="share-toggle" class="composer-toggle" type="button" aria-expanded="false" aria-controls="share-content">
-          <span id="share-title">Share a song ?</span>
-          <span class="toggle-arrow" aria-hidden="true"></span>
-        </button>
+        <h2 id="share-title" class="composer-title">Share a song</h2>
 
-        <div id="share-content" class="composer-content" hidden>
+        <div id="share-content" class="composer-content">
           <div class="song-picker">
             <div class="search-field">
               <label class="visually-hidden" for="song-search">Search songs</label>
               <span class="search-icon" aria-hidden="true">⌕</span>
               <input id="song-search" type="text" inputmode="search" enterkeyhint="search" autocomplete="off" placeholder="Search a song or artist" aria-controls="search-results" />
-              <button id="clear-search" class="clear-search" type="button" aria-label="Clear song search">×</button>
             </div>
             <div id="search-status" class="search-status" aria-live="polite"></div>
             <div id="search-results" class="search-results" role="listbox" aria-label="Song results"></div>
@@ -86,6 +82,6 @@
 
     <audio id="preview-audio" preload="none"></audio>
     <div id="toast-root" class="toast-root" aria-live="polite" aria-atomic="true"></div>
-    <script type="module" src="./app.js?v=20261116-4"></script>
+    <script type="module" src="./app.js?v=20261116-5"></script>
   </body>
 </html>
