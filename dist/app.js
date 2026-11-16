@@ -254,42 +254,80 @@ function localCountry() {
   return /^[a-z]{2}$/i.test(candidate || "") ? candidate.toUpperCase() : "US";
 }
 
-function searchCatalog(term) {
-  const queryText = cleanText(term, 120);
-  if (queryText.length < 2) return Promise.resolve([]);
+function catalogUrl(queryText, callbackName = "") {
+  const params = new URLSearchParams({
+    term: queryText,
+    entity: "song",
+    media: "music",
+    country: localCountry(),
+    limit: "18",
+  });
+  if (callbackName) params.set("callback", callbackName);
+  return `https://itunes.apple.com/search?${params.toString()}`;
+}
 
-  const requestId = ++state.searchVersion;
+function playableTracks(payload) {
+  return (payload?.results || [])
+    .map(normalizeTrack)
+    .filter((track) => track.title && track.artist && track.previewUrl)
+    .slice(0, 8);
+}
+
+async function fetchCatalog(queryText) {
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const timeout = controller ? window.setTimeout(() => controller.abort(), 8500) : null;
+
+  try {
+    const response = await fetch(catalogUrl(queryText), { signal: controller?.signal });
+    if (!response.ok) throw new Error(`Music search returned ${response.status}.`);
+    return await response.json();
+  } finally {
+    if (timeout) window.clearTimeout(timeout);
+  }
+}
+
+function fetchCatalogJsonp(queryText) {
   return new Promise((resolve, reject) => {
     const callbackName = `resonanceSearch${Date.now()}${Math.random().toString(36).slice(2)}`;
     const script = document.createElement("script");
+    let settled = false;
+    let timeout;
     const finish = (error, payload) => {
+      if (settled) return;
+      settled = true;
       window.clearTimeout(timeout);
       delete window[callbackName];
       script.remove();
       if (error) reject(error);
       else resolve(payload || []);
     };
-    const timeout = window.setTimeout(() => finish(new Error("Search timed out. Try again.")), 9000);
+    timeout = window.setTimeout(() => finish(new Error("Search timed out. Try again.")), 9000);
 
-    window[callbackName] = (payload) => {
-      if (requestId !== state.searchVersion) return finish(null, []);
-      const tracks = (payload.results || [])
-        .map(normalizeTrack)
-        .filter((track) => track.title && track.artist && track.previewUrl)
-        .slice(0, 8);
-      finish(null, tracks);
-    };
+    window[callbackName] = (payload) => finish(null, payload);
     script.onerror = () => finish(new Error("Couldn’t reach the music catalogue."));
-    script.src = `https://itunes.apple.com/search?${new URLSearchParams({
-      term: queryText,
-      entity: "song",
-      media: "music",
-      country: localCountry(),
-      limit: "18",
-      callback: callbackName,
-    }).toString()}`;
+    script.src = catalogUrl(queryText, callbackName);
     document.head.append(script);
   });
+}
+
+async function searchCatalog(term) {
+  const queryText = cleanText(term, 120);
+  if (queryText.length < 2) return [];
+
+  const requestId = ++state.searchVersion;
+  let payload;
+  try {
+    payload = await fetchCatalog(queryText);
+  } catch {
+    if (requestId !== state.searchVersion) return [];
+    try {
+      payload = await fetchCatalogJsonp(queryText);
+    } catch {
+      throw new Error("Couldn’t reach the music catalogue.");
+    }
+  }
+
+  return requestId === state.searchVersion ? playableTracks(payload) : [];
 }
 
 function renderSearchResults(tracks) {

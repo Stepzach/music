@@ -69,6 +69,10 @@ html.is-playing #disco-spots {
   opacity: .46 !important;
 }
 
+html[data-theme="dark"] #disco-spots {
+  opacity: .26 !important;
+}
+
 html[data-theme="dark"].is-playing #disco-spots {
   mix-blend-mode: screen !important;
   opacity: .52 !important;
