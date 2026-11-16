@@ -567,7 +567,6 @@ shareForm.addEventListener("submit", async (event) => {
   const note = cleanText(noteInput.value, 280);
   shareButton.disabled = true;
   shareStatus.textContent = "Uploading…";
-  toast("Uploading.");
   try {
     const owner = await ensureAnonymousUser();
     state.ownerUid = owner.uid;
@@ -610,6 +609,7 @@ function trackFromRaw(raw) {
     artwork: safeUrl(value.artwork),
     previewUrl: safeUrl(value.previewUrl),
     appleUrl: safeUrl(value.appleUrl),
+    spotifyUrl: safeUrl(value.spotifyUrl),
   };
   return {
     ...track,
@@ -627,17 +627,30 @@ function tracksFromShare(share) {
     .map(trackFromRaw);
 }
 
-function localAppleMusicUrl(value) {
+function appleMusicUrl(value) {
   try {
     const url = new URL(value);
-    if (url.protocol !== "https:" || url.hostname !== "music.apple.com") return "";
-    const path = url.pathname.split("/");
-    if (/^[a-z]{2}$/i.test(path[1] || "")) path[1] = localCountry().toLowerCase();
-    url.pathname = path.join("/");
+    if (url.protocol !== "https:" || !["music.apple.com", "geo.music.apple.com"].includes(url.hostname)) return "";
     return url.href;
   } catch {
     return "";
   }
+}
+
+function spotifyUrl(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.hostname !== "open.spotify.com") return "";
+    return url.href;
+  } catch {
+    return "";
+  }
+}
+
+function spotifySearchUrl(track) {
+  // Artist-and-title filters reduce common-title false matches.
+  const query = cleanText(`track:${track.title} artist:${track.artist}`, 240);
+  return `https://open.spotify.com/search/${encodeURIComponent(query)}`;
 }
 
 function appleTrackKey(track) {
@@ -645,7 +658,7 @@ function appleTrackKey(track) {
 }
 
 function cachedAppleMusicUrl(track) {
-  const direct = localAppleMusicUrl(track.appleUrl);
+  const direct = appleMusicUrl(track.appleUrl);
   return direct || appleUrlCache.get(appleTrackKey(track)) || "";
 }
 
@@ -672,7 +685,7 @@ function resolveAppleMusicUrl(track) {
       try {
         const results = await source(searchText);
         const match = [...results].sort((a, b) => appleResultScore(b, track) - appleResultScore(a, track))[0];
-        const url = localAppleMusicUrl(match?.appleUrl);
+        const url = appleMusicUrl(match?.appleUrl);
         if (url) {
           appleUrlCache.set(key, url);
           return url;
@@ -691,15 +704,15 @@ function resolveAppleMusicUrl(track) {
 function providerUrl(track, provider) {
   const text = encodeURIComponent(`${track.title} ${track.artist}`);
   if (provider === "Apple Music") {
-    return localAppleMusicUrl(track.appleUrl)
+    return appleMusicUrl(track.appleUrl)
       || `https://music.apple.com/${localCountry().toLowerCase()}/search?term=${text}`;
   }
-  return `https://open.spotify.com/search/${text}`;
+  return spotifyUrl(track.spotifyUrl) || spotifySearchUrl(track);
 }
 
 async function deleteShare(share, button) {
   if (!state.ownerUid || cleanText(share.ownerUid, 128) !== state.ownerUid) return;
-  if (!window.confirm("Are you sure?")) return;
+  if (!window.confirm("Are you sure you want to delete?")) return;
 
   button.disabled = true;
   try {
@@ -843,8 +856,6 @@ function renderShare(share) {
     ["Spotify", "Apple Music"].forEach((provider) => {
       const link = createElement("a", `quick-link provider-link ${provider === "Spotify" ? "spotify-link" : "apple-music-link"}`);
       link.href = providerUrl(track, provider);
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
       link.setAttribute("aria-label", `Open ${track.title} in ${provider}`);
       link.append(providerIcon(provider));
       providers.append(link);
