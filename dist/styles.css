@@ -669,8 +669,7 @@ html[data-theme="dark"] .play-button { color: #151515; }
   stroke-linejoin: round;
 }
 .spotify-icon path { stroke-width: 1.45; }
-.apple-music-icon .apple-music-tile { fill: currentColor; }
-.apple-music-icon .apple-music-note { fill: #fff; }
+.apple-music-icon .apple-music-mark { fill: currentColor; }
 
 .note {
   position: relative;

@@ -37,6 +37,8 @@ const MAX_TRACKS_PER_SHARE = 12;
 const THEME_STORAGE_KEY = "resonance-theme";
 const deviceTheme = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+const DEEZER_PREVIEW_REFRESH_MS = 2 * 60 * 1000;
+const DEEZER_PREVIEW_SAFETY_MS = 2 * 60 * 1000;
 
 const state = {
   selectedTracks: [],
@@ -46,6 +48,9 @@ const state = {
   discoPartyOn: false,
   shares: [],
 };
+const deezerPreviewCache = new Map();
+const deezerPreviewRequests = new Map();
+let feedPreviewRefreshTimer = 0;
 
 function storedTheme() {
   try {
@@ -125,10 +130,10 @@ function providerIcon(provider) {
       createSvgElement("path", { d: "M7.8 15.2c2.55-.56 5.2-.15 7.05.9" })
     );
   } else {
-    svg.append(
-      createSvgElement("rect", { class: "apple-music-tile", x: "2", y: "2", width: "20", height: "20", rx: "5.4" }),
-      createSvgElement("path", { class: "apple-music-note", d: "M15.8 5.7v9.02a2.78 2.78 0 1 1-1.25-2.31V8.23l-5.1 1.2v6.17a2.78 2.78 0 1 1-1.25-2.31V8.36L15.8 5.7Z" })
-    );
+    svg.append(createSvgElement("path", {
+      class: "apple-music-mark",
+      d: "M16.7 12.7c0-2.35 1.92-3.47 2.01-3.53-1.09-1.59-2.78-1.81-3.38-1.84-1.43-.15-2.79.85-3.51.85-.73 0-1.84-.83-3.04-.81-1.56.03-3 .93-3.81 2.37-1.63 2.83-.42 7.01 1.16 9.31.77 1.13 1.7 2.39 2.9 2.34 1.16-.05 1.6-.75 3-.75 1.39 0 1.79.75 3.02.72 1.24-.02 2.03-1.13 2.8-2.27.9-1.31 1.27-2.59 1.29-2.66-.03-.01-2.44-.94-2.44-3.78ZM14.48 5.88c.64-.78 1.07-1.87.95-2.95-.92.04-2.05.63-2.71 1.4-.6.69-1.12 1.8-.99 2.84 1.02.08 2.09-.52 2.75-1.29Z"
+    }));
   }
 
   icon.append(svg);
@@ -340,6 +345,57 @@ function deezerCatalogUrl(queryText, callbackName) {
   return `https://api.deezer.com/search?${params.toString()}`;
 }
 
+function deezerTrackId(track) {
+  const match = /^deezer-(\d+)$/.exec(String(track?.id || ""));
+  return match ? match[1] : "";
+}
+
+function previewExpiryMs(url) {
+  try {
+    const token = new URL(url).searchParams.get("hdnea") || "";
+    const match = /(?:^|~)exp=(\d+)/.exec(token);
+    return match ? Number(match[1]) * 1000 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function cachedDeezerPreview(track) {
+  const trackId = deezerTrackId(track);
+  const cached = trackId && deezerPreviewCache.get(trackId);
+  if (!cached) return "";
+  if (cached.expiresAt && cached.expiresAt - Date.now() <= DEEZER_PREVIEW_SAFETY_MS) {
+    deezerPreviewCache.delete(trackId);
+    return "";
+  }
+  return cached.url;
+}
+
+function refreshDeezerPreview(track, { force = false } = {}) {
+  const trackId = deezerTrackId(track);
+  if (!trackId) return Promise.resolve("");
+
+  if (!force) {
+    const cached = cachedDeezerPreview(track);
+    if (cached) return Promise.resolve(cached);
+  }
+  if (deezerPreviewRequests.has(trackId)) return deezerPreviewRequests.get(trackId);
+
+  const request = fetchJsonp("resonanceDeezerTrack", (callbackName) => {
+    const params = new URLSearchParams({ output: "jsonp", callback: callbackName });
+    return `https://api.deezer.com/track/${encodeURIComponent(trackId)}?${params.toString()}`;
+  }).then((payload) => {
+    const url = safeUrl(payload?.preview);
+    if (url) deezerPreviewCache.set(trackId, { url, expiresAt: previewExpiryMs(url) });
+    return url;
+  }).catch(() => "").finally(() => {
+    deezerPreviewRequests.delete(trackId);
+  });
+
+  deezerPreviewRequests.set(trackId, request);
+  return request;
+}
+
 function fetchDeezerCatalogJsonp(queryText) {
   return fetchJsonp("resonanceDeezerSearch", (callbackName) => deezerCatalogUrl(queryText, callbackName))
     .then((payload) => (payload?.data || [])
@@ -527,6 +583,9 @@ shareForm.addEventListener("submit", async (event) => {
   shareButton.disabled = true;
   shareStatus.textContent = "Adding it…";
   try {
+    await Promise.all(state.selectedTracks.map((track) => refreshDeezerPreview(track).then((previewUrl) => {
+      if (previewUrl) track.previewUrl = previewUrl;
+    })));
     await addDoc(collection(db, "shares"), {
       tracks: state.selectedTracks,
       senderName,
@@ -550,7 +609,7 @@ shareForm.addEventListener("submit", async (event) => {
 
 function trackFromRaw(raw) {
   const value = raw && typeof raw === "object" ? raw : {};
-  return {
+  const track = {
     id: cleanText(value.id, 60),
     title: cleanText(value.title, 120) || "Unknown song",
     artist: cleanText(value.artist, 120) || "Unknown artist",
@@ -559,6 +618,7 @@ function trackFromRaw(raw) {
     previewUrl: safeUrl(value.previewUrl),
     appleUrl: safeUrl(value.appleUrl),
   };
+  return { ...track, previewUrl: cachedDeezerPreview(track) || track.previewUrl };
 }
 
 function tracksFromShare(share) {
@@ -633,6 +693,8 @@ function updateMediaSession(track) {
 }
 
 async function toggleTrackPreview(track, playbackKey) {
+  const freshPreview = cachedDeezerPreview(track);
+  if (freshPreview) track.previewUrl = freshPreview;
   if (!track.previewUrl) {
     toast("This song doesn’t have a preview.", "error");
     return;
@@ -656,7 +718,18 @@ async function toggleTrackPreview(track, playbackKey) {
     state.currentPlaybackKey = null;
     state.currentPreviewUrl = "";
     updatePlaybackUI();
-    toast("Preview couldn’t play in this browser.", "error");
+    if (deezerTrackId(track)) {
+      void refreshDeezerPreview(track, { force: true }).then((previewUrl) => {
+        if (previewUrl) {
+          track.previewUrl = previewUrl;
+          toast("Preview refreshed — tap play again.");
+        } else {
+          toast("Preview couldn’t play in this browser.", "error");
+        }
+      });
+    } else {
+      toast("Preview couldn’t play in this browser.", "error");
+    }
   }
 }
 
@@ -740,10 +813,37 @@ function renderFeed() {
   updatePlaybackUI();
 }
 
+function refreshFeedPreviews() {
+  const tracks = new Map();
+  state.shares.forEach((share) => {
+    tracksFromShare(share).forEach((track) => {
+      const trackId = deezerTrackId(track);
+      if (trackId && !cachedDeezerPreview(track)) tracks.set(trackId, track);
+    });
+  });
+  if (!tracks.size) return;
+
+  void Promise.all([...tracks.values()].map((track) => refreshDeezerPreview(track)))
+    .then((previews) => {
+      if (previews.some(Boolean)) renderFeed();
+    });
+}
+
+function scheduleFeedPreviewRefresh() {
+  window.clearTimeout(feedPreviewRefreshTimer);
+  if (!state.shares.some((share) => tracksFromShare(share).some((track) => deezerTrackId(track)))) return;
+  feedPreviewRefreshTimer = window.setTimeout(() => {
+    refreshFeedPreviews();
+    scheduleFeedPreviewRefresh();
+  }, DEEZER_PREVIEW_REFRESH_MS);
+}
+
 const feedQuery = query(collection(db, "shares"), orderBy("createdAt", "desc"), limit(60));
 onSnapshot(feedQuery, (snapshot) => {
   state.shares = snapshot.docs.map((document) => ({ id: document.id, ...document.data() }));
   renderFeed();
+  refreshFeedPreviews();
+  scheduleFeedPreviewRefresh();
 }, (error) => {
   console.error(error);
   feedStatus.textContent = "The wall needs a quick Firebase setup before it can load.";
