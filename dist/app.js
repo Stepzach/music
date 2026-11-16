@@ -30,13 +30,13 @@ const feedList = $("#feed-list");
 const feedCount = $("#feed-count");
 const toastRoot = $("#toast-root");
 const themeToggle = $("#theme-toggle");
-const themeIcon = $("#theme-icon");
 const themeColor = $("meta[name='theme-color']");
 const DISCO_ENGINE_URL = "./disco-engine.js";
 const MAX_TRACKS_PER_SHARE = 12;
-const THEME_STORAGE_KEY = "resonance-theme";
-const deviceTheme = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
-const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+const THEME_OVERRIDE_STORAGE_KEY = "resonance-theme-override";
+const LEGACY_THEME_STORAGE_KEY = "resonance-theme";
+const DAY_START_HOUR = 7;
+const NIGHT_START_HOUR = 19;
 const DEEZER_PREVIEW_REFRESH_MS = 2 * 60 * 1000;
 const DEEZER_PREVIEW_SAFETY_MS = 2 * 60 * 1000;
 
@@ -54,18 +54,36 @@ const deezerPreviewRequests = new Map();
 const appleUrlCache = new Map();
 const appleUrlRequests = new Map();
 let feedPreviewRefreshTimer = 0;
+let themeBoundaryTimer = 0;
 
-function storedTheme() {
-  try {
-    const value = localStorage.getItem(THEME_STORAGE_KEY);
-    return value === "dark" || value === "light" ? value : "";
-  } catch {
-    return "";
-  }
+function automaticTheme(now = new Date()) {
+  const hour = now.getHours();
+  return hour >= DAY_START_HOUR && hour < NIGHT_START_HOUR ? "light" : "dark";
 }
 
-function systemTheme() {
-  return deviceTheme?.matches ? "dark" : "light";
+function nextThemeBoundary(now = new Date()) {
+  const boundary = new Date(now);
+  const hour = now.getHours();
+  const nextHour = hour < DAY_START_HOUR || hour >= NIGHT_START_HOUR ? DAY_START_HOUR : NIGHT_START_HOUR;
+  boundary.setHours(nextHour, 0, 0, 0);
+  if (boundary <= now) boundary.setDate(boundary.getDate() + 1);
+  return boundary;
+}
+
+function storedThemeOverride() {
+  try {
+    const value = JSON.parse(localStorage.getItem(THEME_OVERRIDE_STORAGE_KEY) || "null");
+    if (value?.theme && (value.theme === "dark" || value.theme === "light") && Number(value.expiresAt) > Date.now()) {
+      return value.theme;
+    }
+    localStorage.removeItem(THEME_OVERRIDE_STORAGE_KEY);
+    // A previous release saved a permanent preference. Let the local clock take
+    // over after this update rather than preserving that old override forever.
+    localStorage.removeItem(LEGACY_THEME_STORAGE_KEY);
+  } catch {
+    // Storage is optional; the automatic theme still works without it.
+  }
+  return "";
 }
 
 function applyTheme(theme) {
@@ -75,29 +93,39 @@ function applyTheme(theme) {
   document.documentElement.style.colorScheme = nextTheme;
   if (themeToggle) {
     themeToggle.setAttribute("aria-pressed", String(isDark));
-    themeToggle.setAttribute("aria-label", isDark ? "Use light mode" : "Use dark mode");
-    themeToggle.title = isDark ? "Use light mode" : "Use dark mode";
+    themeToggle.dataset.theme = nextTheme;
+    themeToggle.dataset.automaticTheme = automaticTheme();
+    themeToggle.setAttribute("aria-label", isDark ? "Switch to light mode" : "Switch to dark mode");
+    themeToggle.title = isDark ? "Switch to light mode" : "Switch to dark mode";
   }
-  if (themeIcon) themeIcon.textContent = isDark ? "☾" : "☀";
-  if (themeColor) themeColor.setAttribute("content", isDark ? "#141416" : "#fffefa");
+  if (themeColor) themeColor.setAttribute("content", isDark ? "#141416" : "#ffffff");
 }
 
 function setManualTheme(theme) {
-  try { localStorage.setItem(THEME_STORAGE_KEY, theme); } catch { /* The current session still updates. */ }
+  try {
+    localStorage.setItem(THEME_OVERRIDE_STORAGE_KEY, JSON.stringify({
+      theme,
+      expiresAt: nextThemeBoundary().getTime(),
+    }));
+  } catch { /* The current session still updates. */ }
   applyTheme(theme);
 }
 
-applyTheme(storedTheme() || document.documentElement.dataset.theme || systemTheme());
+function syncThemeWithLocalTime() {
+  window.clearTimeout(themeBoundaryTimer);
+  applyTheme(storedThemeOverride() || automaticTheme());
+  const delay = Math.max(1000, nextThemeBoundary().getTime() - Date.now() + 1000);
+  themeBoundaryTimer = window.setTimeout(syncThemeWithLocalTime, delay);
+}
+
+syncThemeWithLocalTime();
 themeToggle?.addEventListener("click", () => {
   setManualTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
 });
 
-function followDeviceTheme(event) {
-  if (!storedTheme()) applyTheme(event.matches ? "dark" : "light");
-}
-
-if (deviceTheme?.addEventListener) deviceTheme.addEventListener("change", followDeviceTheme);
-else if (deviceTheme?.addListener) deviceTheme.addListener(followDeviceTheme);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) syncThemeWithLocalTime();
+});
 
 const placeholderArtwork = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80">
@@ -114,32 +142,20 @@ function createElement(tag, className, text) {
   return element;
 }
 
-function createSvgElement(tag, attributes = {}) {
-  const element = document.createElementNS(SVG_NAMESPACE, tag);
-  Object.entries(attributes).forEach(([name, value]) => element.setAttribute(name, value));
-  return element;
-}
-
 function providerIcon(provider) {
   const isSpotify = provider === "Spotify";
   const icon = createElement("span", `provider-icon ${isSpotify ? "spotify-icon" : "apple-music-icon"}`);
-  const svg = createSvgElement("svg", { viewBox: "0 0 24 24", "aria-hidden": "true", focusable: "false" });
+  const mark = document.createElement("img");
+  mark.src = isSpotify ? "./assets/spotify.png" : "./assets/apple-music.png";
+  mark.alt = "";
+  mark.decoding = "async";
+  icon.append(mark);
+  return icon;
+}
 
-  if (isSpotify) {
-    svg.append(
-      createSvgElement("circle", { cx: "12", cy: "12", r: "10" }),
-      createSvgElement("path", { d: "M6.4 9.4c3.9-1 8.4-.35 11.3 1.35" }),
-      createSvgElement("path", { d: "M7.1 12.4c3.25-.8 6.8-.26 9.2 1.08" }),
-      createSvgElement("path", { d: "M7.8 15.2c2.55-.56 5.2-.15 7.05.9" })
-    );
-  } else {
-    svg.append(createSvgElement("path", {
-      class: "apple-music-mark",
-      d: "M16.7 12.7c0-2.35 1.92-3.47 2.01-3.53-1.09-1.59-2.78-1.81-3.38-1.84-1.43-.15-2.79.85-3.51.85-.73 0-1.84-.83-3.04-.81-1.56.03-3 .93-3.81 2.37-1.63 2.83-.42 7.01 1.16 9.31.77 1.13 1.7 2.39 2.9 2.34 1.16-.05 1.6-.75 3-.75 1.39 0 1.79.75 3.02.72 1.24-.02 2.03-1.13 2.8-2.27.9-1.31 1.27-2.59 1.29-2.66-.03-.01-2.44-.94-2.44-3.78ZM14.48 5.88c.64-.78 1.07-1.87.95-2.95-.92.04-2.05.63-2.71 1.4-.6.69-1.12 1.8-.99 2.84 1.02.08 2.09-.52 2.75-1.29Z"
-    }));
-  }
-
-  icon.append(svg);
+function playbackIcon(isPlaying = false) {
+  const icon = createElement("i", `play-icon fa-solid ${isPlaying ? "fa-pause" : "fa-play"}`);
+  icon.setAttribute("aria-hidden", "true");
   return icon;
 }
 
@@ -463,7 +479,9 @@ function renderSelectedTracks() {
     preview.setAttribute("aria-label", `Preview ${track.title}`);
     preview.setAttribute("aria-pressed", "false");
     preview.addEventListener("click", () => toggleTrackPreview(track, draftPlaybackKey(track)));
-    preview.append(image(track.artwork, "", "cover"), createElement("span", "artwork-play-icon", "▶"));
+    const previewIcon = createElement("span", "artwork-play-icon");
+    previewIcon.append(playbackIcon());
+    preview.append(image(track.artwork, "", "cover"), previewIcon);
 
     const remove = createElement("button", "remove-song", "×");
     remove.type = "button";
@@ -750,15 +768,16 @@ function updatePlaybackUI() {
   document.querySelectorAll(".play-button").forEach((button) => {
     const current = playing && button.dataset.playbackKey === state.currentPlaybackKey;
     button.classList.toggle("is-current", current);
-    button.textContent = current ? "Ⅱ" : "▶";
+    const icon = button.querySelector(".play-icon");
+    if (icon) icon.className = `play-icon fa-solid ${current ? "fa-pause" : "fa-play"}`;
     button.setAttribute("aria-label", current ? `Pause ${button.dataset.songTitle}` : `Play ${button.dataset.songTitle}`);
   });
 
   document.querySelectorAll(".artwork-preview").forEach((button) => {
     const current = playing && button.dataset.playbackKey === state.currentPlaybackKey;
     button.classList.toggle("is-current", current);
-    const icon = button.querySelector(".artwork-play-icon");
-    if (icon) icon.textContent = current ? "Ⅱ" : "▶";
+    const icon = button.querySelector(".artwork-play-icon .play-icon");
+    if (icon) icon.className = `play-icon fa-solid ${current ? "fa-pause" : "fa-play"}`;
     button.setAttribute("aria-label", current ? `Pause ${button.dataset.songTitle}` : `Preview ${button.dataset.songTitle}`);
     button.setAttribute("aria-pressed", String(current));
   });
@@ -880,12 +899,13 @@ function renderShare(share) {
   tracks.forEach((track, index) => {
     const row = createElement("div", "feed-track");
     const playbackKey = `share:${share.id}:${index}`;
-    const play = createElement("button", "play-button", "▶");
+    const play = createElement("button", "play-button");
     play.type = "button";
     play.dataset.playbackKey = playbackKey;
     play.dataset.songTitle = track.title;
     play.setAttribute("aria-label", `Play ${track.title}`);
     play.addEventListener("click", () => toggleTrackPreview(track, playbackKey));
+    play.append(playbackIcon());
 
     const copy = createElement("div", "track-copy");
     copy.append(createElement("h3", "", track.title), createElement("p", "", track.artist));

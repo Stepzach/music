@@ -3,17 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#fffefa" />
+    <meta name="theme-color" content="#ffffff" />
     <meta name="description" content="Zach &amp; Nono's shared playlist." />
     <title>resonance — Zach &amp; Nono's shared playlist</title>
     <script>
       (() => {
-        const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-        let theme = prefersDark ? "dark" : "light";
-        try {
-          const saved = localStorage.getItem("resonance-theme");
-          if (saved === "dark" || saved === "light") theme = saved;
-        } catch { /* A device preference is enough when storage is unavailable. */ }
+        const hour = new Date().getHours();
+        const theme = hour >= 7 && hour < 19 ? "light" : "dark";
         document.documentElement.dataset.theme = theme;
         document.documentElement.style.colorScheme = theme;
       })();
@@ -21,12 +17,16 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300..700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="./styles.css?v=20261116-6" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+    <link rel="stylesheet" href="./styles.css?v=20261116-7" />
   </head>
   <body>
     <a class="skip-link" href="#feed">Skip to the feed</a>
-    <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Use dark mode" aria-pressed="false" title="Use dark mode">
-      <span id="theme-icon" aria-hidden="true">☀</span>
+    <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch to dark mode" aria-pressed="false" title="Switch to dark mode" data-theme="light">
+      <span class="theme-toggle-track" aria-hidden="true">
+        <span class="theme-toggle-option theme-toggle-sun"><i class="fa-solid fa-star"></i></span>
+        <span class="theme-toggle-option theme-toggle-moon"><i class="fa-solid fa-moon"></i></span>
+      </span>
     </button>
 
     <header class="masthead">
@@ -82,6 +82,6 @@
 
     <audio id="preview-audio" preload="none"></audio>
     <div id="toast-root" class="toast-root" aria-live="polite" aria-atomic="true"></div>
-    <script type="module" src="./app.js?v=20261116-6"></script>
+    <script type="module" src="./app.js?v=20261116-7"></script>
   </body>
 </html>
