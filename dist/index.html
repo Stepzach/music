@@ -3,9 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#ffffff" />
+    <meta name="theme-color" content="#fffefa" />
     <meta name="description" content="A small, no-sign-in wall for songs worth passing on." />
     <title>resonance — songs worth passing on</title>
+    <script>
+      (() => {
+        const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        let theme = prefersDark ? "dark" : "light";
+        try {
+          const saved = localStorage.getItem("resonance-theme");
+          if (saved === "dark" || saved === "light") theme = saved;
+        } catch { /* A device preference is enough when storage is unavailable. */ }
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300..700&display=swap" rel="stylesheet" />
@@ -13,6 +25,9 @@
   </head>
   <body>
     <a class="skip-link" href="#feed">Skip to the feed</a>
+    <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Use dark mode" aria-pressed="false" title="Use dark mode">
+      <span id="theme-icon" aria-hidden="true">☾</span>
+    </button>
 
     <header class="masthead">
       <h1 data-disco-target>resonance</h1>

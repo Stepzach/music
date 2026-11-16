@@ -29,8 +29,14 @@ const toastRoot = $("#toast-root");
 const shareToggle = $("#share-toggle");
 const shareContent = $("#share-content");
 const shareTitle = $("#share-title");
+const themeToggle = $("#theme-toggle");
+const themeIcon = $("#theme-icon");
+const themeColor = $("meta[name='theme-color']");
 const DISCO_ENGINE_URL = "./disco-engine.js";
 const MAX_TRACKS_PER_SHARE = 12;
+const THEME_STORAGE_KEY = "resonance-theme";
+const deviceTheme = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
 const state = {
   selectedTracks: [],
@@ -40,6 +46,50 @@ const state = {
   discoPartyOn: false,
   shares: [],
 };
+
+function storedTheme() {
+  try {
+    const value = localStorage.getItem(THEME_STORAGE_KEY);
+    return value === "dark" || value === "light" ? value : "";
+  } catch {
+    return "";
+  }
+}
+
+function systemTheme() {
+  return deviceTheme?.matches ? "dark" : "light";
+}
+
+function applyTheme(theme) {
+  const nextTheme = theme === "dark" ? "dark" : "light";
+  const isDark = nextTheme === "dark";
+  document.documentElement.dataset.theme = nextTheme;
+  document.documentElement.style.colorScheme = nextTheme;
+  if (themeToggle) {
+    themeToggle.setAttribute("aria-pressed", String(isDark));
+    themeToggle.setAttribute("aria-label", isDark ? "Use light mode" : "Use dark mode");
+    themeToggle.title = isDark ? "Use light mode" : "Use dark mode";
+  }
+  if (themeIcon) themeIcon.textContent = isDark ? "☀" : "☾";
+  if (themeColor) themeColor.setAttribute("content", isDark ? "#141416" : "#fffefa");
+}
+
+function setManualTheme(theme) {
+  try { localStorage.setItem(THEME_STORAGE_KEY, theme); } catch { /* The current session still updates. */ }
+  applyTheme(theme);
+}
+
+applyTheme(storedTheme() || document.documentElement.dataset.theme || systemTheme());
+themeToggle?.addEventListener("click", () => {
+  setManualTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+});
+
+function followDeviceTheme(event) {
+  if (!storedTheme()) applyTheme(event.matches ? "dark" : "light");
+}
+
+if (deviceTheme?.addEventListener) deviceTheme.addEventListener("change", followDeviceTheme);
+else if (deviceTheme?.addListener) deviceTheme.addListener(followDeviceTheme);
 
 const placeholderArtwork = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80">
@@ -54,6 +104,35 @@ function createElement(tag, className, text) {
   if (className) element.className = className;
   if (text !== undefined) element.textContent = text;
   return element;
+}
+
+function createSvgElement(tag, attributes = {}) {
+  const element = document.createElementNS(SVG_NAMESPACE, tag);
+  Object.entries(attributes).forEach(([name, value]) => element.setAttribute(name, value));
+  return element;
+}
+
+function providerIcon(provider) {
+  const isSpotify = provider === "Spotify";
+  const icon = createElement("span", `provider-icon ${isSpotify ? "spotify-icon" : "apple-music-icon"}`);
+  const svg = createSvgElement("svg", { viewBox: "0 0 24 24", "aria-hidden": "true", focusable: "false" });
+
+  if (isSpotify) {
+    svg.append(
+      createSvgElement("circle", { cx: "12", cy: "12", r: "10" }),
+      createSvgElement("path", { d: "M6.4 9.4c3.9-1 8.4-.35 11.3 1.35" }),
+      createSvgElement("path", { d: "M7.1 12.4c3.25-.8 6.8-.26 9.2 1.08" }),
+      createSvgElement("path", { d: "M7.8 15.2c2.55-.56 5.2-.15 7.05.9" })
+    );
+  } else {
+    svg.append(
+      createSvgElement("rect", { x: "2", y: "2", width: "20", height: "20", rx: "5" }),
+      createSvgElement("path", { d: "M15.5 6.4v8.25a3.1 3.1 0 1 1-1.35-2.55V8.25l-5.15 1.22v6.12a3.1 3.1 0 1 1-1.35-2.55V8.4l7.85-2Z" })
+    );
+  }
+
+  icon.append(svg);
+  return icon;
 }
 
 function cleanText(value, maxLength = 0) {
@@ -270,10 +349,6 @@ function renderSelectedTracks() {
     selectedTrack.append(summary);
   });
 
-  const addAnother = createElement("button", "add-another-song", "Add another song");
-  addAnother.type = "button";
-  addAnother.addEventListener("click", startAnotherSong);
-  selectedTrack.append(addAnother);
   selectedTrack.hidden = false;
   shareForm.hidden = false;
   shareButton.disabled = false;
@@ -286,11 +361,6 @@ function clearSearchQuery() {
   searchInput.value = "";
   searchStatus.textContent = "";
   searchResults.replaceChildren();
-}
-
-function startAnotherSong() {
-  clearSearchQuery();
-  searchInput.focus();
 }
 
 function selectTrack(track) {
@@ -422,7 +492,6 @@ function tracksFromShare(share) {
 function providerUrl(track, provider) {
   const text = encodeURIComponent(`${track.title} ${track.artist}`);
   if (provider === "Apple Music") return track.appleUrl || `https://music.apple.com/us/search?term=${text}`;
-  if (provider === "YouTube Music") return `https://music.youtube.com/search?q=${text}`;
   return `https://open.spotify.com/search/${text}`;
 }
 
@@ -551,12 +620,14 @@ function renderShare(share) {
     copy.append(createElement("h3", "", track.title), createElement("p", "", track.artist));
 
     const links = createElement("div", "quick-links");
-    ["Spotify", "Apple Music", "YouTube Music"].forEach((provider) => {
-      const link = createElement("a", "quick-link", provider === "Apple Music" ? "Apple" : provider === "YouTube Music" ? "YouTube" : provider);
+    links.append(createElement("span", "open-in", "Open in:"));
+    ["Spotify", "Apple Music"].forEach((provider) => {
+      const link = createElement("a", `quick-link provider-link ${provider === "Spotify" ? "spotify-link" : "apple-music-link"}`);
       link.href = providerUrl(track, provider);
       link.target = "_blank";
       link.rel = "noopener noreferrer";
       link.setAttribute("aria-label", `Open ${track.title} in ${provider}`);
+      link.append(providerIcon(provider));
       links.append(link);
     });
 
