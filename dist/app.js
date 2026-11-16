@@ -30,9 +30,10 @@ const shareToggle = $("#share-toggle");
 const shareContent = $("#share-content");
 const shareTitle = $("#share-title");
 const DISCO_ENGINE_URL = "./disco-engine.js";
+const MAX_TRACKS_PER_SHARE = 12;
 
 const state = {
-  selectedTrack: null,
+  selectedTracks: [],
   searchVersion: 0,
   currentPlaybackKey: null,
   currentPreviewUrl: "",
@@ -232,10 +233,13 @@ function renderSearchResults(tracks) {
   });
 }
 
-function renderSelectedTrack() {
+function draftPlaybackKey(track) {
+  return `draft:${track.id}`;
+}
+
+function renderSelectedTracks() {
   selectedTrack.replaceChildren();
-  const track = state.selectedTrack;
-  if (!track) {
+  if (!state.selectedTracks.length) {
     selectedTrack.hidden = true;
     shareForm.hidden = true;
     shareButton.disabled = true;
@@ -243,29 +247,33 @@ function renderSelectedTrack() {
     return;
   }
 
-  const copy = createElement("div", "result-copy");
-  copy.append(createElement("strong", "", track.title), createElement("span", "", `${track.artist} · ${track.album}`));
-  const preview = createElement("button", "artwork-preview");
-  preview.type = "button";
-  preview.dataset.playbackKey = "composer-preview";
-  preview.dataset.songTitle = track.title;
-  preview.setAttribute("aria-label", `Preview ${track.title}`);
-  preview.setAttribute("aria-pressed", "false");
-  preview.addEventListener("click", () => toggleTrackPreview(track, "composer-preview"));
-  preview.append(image(track.artwork, "", "cover"), createElement("span", "artwork-play-icon", "▶"));
+  state.selectedTracks.forEach((track) => {
+    const copy = createElement("div", "result-copy");
+    copy.append(createElement("strong", "", track.title), createElement("span", "", `${track.artist} · ${track.album}`));
 
-  const remove = createElement("button", "remove-song", "×");
-  remove.type = "button";
-  remove.setAttribute("aria-label", `Remove ${track.title}`);
-  remove.addEventListener("click", clearSong);
+    const preview = createElement("button", "artwork-preview");
+    preview.type = "button";
+    preview.dataset.playbackKey = draftPlaybackKey(track);
+    preview.dataset.songTitle = track.title;
+    preview.setAttribute("aria-label", `Preview ${track.title}`);
+    preview.setAttribute("aria-pressed", "false");
+    preview.addEventListener("click", () => toggleTrackPreview(track, draftPlaybackKey(track)));
+    preview.append(image(track.artwork, "", "cover"), createElement("span", "artwork-play-icon", "▶"));
 
-  const summary = createElement("div", "selected-song-summary");
-  summary.append(preview, copy, remove);
+    const remove = createElement("button", "remove-song", "×");
+    remove.type = "button";
+    remove.setAttribute("aria-label", `Remove ${track.title}`);
+    remove.addEventListener("click", () => removeSelectedTrack(track.id));
+
+    const summary = createElement("div", "selected-song-summary");
+    summary.append(preview, copy, remove);
+    selectedTrack.append(summary);
+  });
 
   const addAnother = createElement("button", "add-another-song", "Add another song");
   addAnother.type = "button";
-  addAnother.addEventListener("click", clearSong);
-  selectedTrack.append(summary, addAnother);
+  addAnother.addEventListener("click", startAnotherSong);
+  selectedTrack.append(addAnother);
   selectedTrack.hidden = false;
   shareForm.hidden = false;
   shareButton.disabled = false;
@@ -273,25 +281,41 @@ function renderSelectedTrack() {
   updatePlaybackUI();
 }
 
-function selectTrack(track) {
-  if (state.currentPlaybackKey === "composer-preview") stopPlayback();
-  state.selectedTrack = track;
-  searchInput.value = `${track.title} — ${track.artist}`;
-  searchStatus.textContent = "";
-  searchResults.replaceChildren();
-  renderSelectedTrack();
-  noteInput.focus();
-}
-
-function clearSong() {
-  if (state.currentPlaybackKey === "composer-preview") stopPlayback();
-  state.selectedTrack = null;
+function clearSearchQuery() {
   state.searchVersion += 1;
   searchInput.value = "";
   searchStatus.textContent = "";
   searchResults.replaceChildren();
-  renderSelectedTrack();
+}
+
+function startAnotherSong() {
+  clearSearchQuery();
   searchInput.focus();
+}
+
+function selectTrack(track) {
+  if (state.selectedTracks.some((selected) => selected.id === track.id)) {
+    toast("Already added.", "error");
+    searchInput.focus();
+    searchInput.select();
+    return;
+  }
+  if (state.selectedTracks.length >= MAX_TRACKS_PER_SHARE) {
+    toast("That’s enough for one share.", "error");
+    return;
+  }
+
+  state.selectedTracks.push(track);
+  clearSearchQuery();
+  renderSelectedTracks();
+  searchInput.focus();
+}
+
+function removeSelectedTrack(trackId) {
+  if (state.currentPlaybackKey === `draft:${trackId}`) stopPlayback();
+  state.selectedTracks = state.selectedTracks.filter((track) => track.id !== trackId);
+  renderSelectedTracks();
+  if (!state.selectedTracks.length) searchInput.focus();
 }
 
 async function runSearch() {
@@ -327,7 +351,7 @@ searchInput.addEventListener("keydown", (event) => {
     searchStatus.textContent = "";
   }
 });
-clearSearch.addEventListener("click", clearSong);
+clearSearch.addEventListener("click", clearSearchQuery);
 
 function preferredName() {
   try { return localStorage.getItem("resonance-name") || ""; } catch { return ""; }
@@ -341,7 +365,7 @@ senderNameInput.value = preferredName();
 
 shareForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (!state.selectedTrack) {
+  if (!state.selectedTracks.length) {
     shareStatus.textContent = "Choose a song first.";
     searchInput.focus();
     return;
@@ -353,19 +377,17 @@ shareForm.addEventListener("submit", async (event) => {
   shareStatus.textContent = "Adding it…";
   try {
     await addDoc(collection(db, "shares"), {
-      track: state.selectedTrack,
+      tracks: state.selectedTracks,
       senderName,
       note,
       createdAt: serverTimestamp(),
     });
     rememberName(senderNameInput.value ? senderName : "");
-    if (state.currentPlaybackKey === "composer-preview") stopPlayback();
+    if (state.currentPlaybackKey?.startsWith("draft:")) stopPlayback();
     noteInput.value = "";
-    state.selectedTrack = null;
-    searchInput.value = "";
-    searchResults.replaceChildren();
-    searchStatus.textContent = "";
-    renderSelectedTrack();
+    state.selectedTracks = [];
+    clearSearchQuery();
+    renderSelectedTracks();
     toast("It’s on the wall.");
   } catch (error) {
     shareButton.disabled = false;
@@ -375,17 +397,26 @@ shareForm.addEventListener("submit", async (event) => {
   }
 });
 
-function trackFromShare(share) {
-  const raw = share.track || {};
+function trackFromRaw(raw) {
+  const value = raw && typeof raw === "object" ? raw : {};
   return {
-    id: cleanText(raw.id, 60),
-    title: cleanText(raw.title, 120) || "Unknown song",
-    artist: cleanText(raw.artist, 120) || "Unknown artist",
-    album: cleanText(raw.album, 140),
-    artwork: safeUrl(raw.artwork),
-    previewUrl: safeUrl(raw.previewUrl),
-    appleUrl: safeUrl(raw.appleUrl),
+    id: cleanText(value.id, 60),
+    title: cleanText(value.title, 120) || "Unknown song",
+    artist: cleanText(value.artist, 120) || "Unknown artist",
+    album: cleanText(value.album, 140),
+    artwork: safeUrl(value.artwork),
+    previewUrl: safeUrl(value.previewUrl),
+    appleUrl: safeUrl(value.appleUrl),
   };
+}
+
+function tracksFromShare(share) {
+  const rawTracks = Array.isArray(share.tracks) && share.tracks.length
+    ? share.tracks
+    : share.track ? [share.track] : [];
+  return rawTracks
+    .filter((track) => track && typeof track === "object")
+    .map(trackFromRaw);
 }
 
 function providerUrl(track, provider) {
@@ -493,37 +524,47 @@ audio.addEventListener("error", () => {
 });
 
 function renderShare(share) {
-  const track = trackFromShare(share);
+  const tracks = tracksFromShare(share);
+  if (!tracks.length) return null;
+
   const article = createElement("article", "feed-item");
-  const play = createElement("button", "play-button", "▶");
-  play.type = "button";
-  play.dataset.playbackKey = `share:${share.id}`;
-  play.dataset.songTitle = track.title;
-  play.setAttribute("aria-label", `Play ${track.title}`);
-  play.addEventListener("click", () => toggleTrackPreview(track, `share:${share.id}`));
 
-  const copy = createElement("div", "track-copy");
-  copy.append(
-    createElement("h3", "", track.title),
-    createElement("p", "", track.artist),
-    (() => {
-      const meta = createElement("p", "shared-meta");
-      meta.append(createElement("b", "", cleanText(share.senderName, 40) || "someone"), document.createTextNode(` · ${relativeTime(share.createdAt)}`));
-      return meta;
-    })()
+  const meta = createElement("p", "shared-meta share-meta");
+  meta.append(
+    createElement("b", "", cleanText(share.senderName, 40) || "someone"),
+    document.createTextNode(` · ${relativeTime(share.createdAt)}`)
   );
+  article.append(meta);
 
-  const links = createElement("div", "quick-links");
-  ["Spotify", "Apple Music", "YouTube Music"].forEach((provider) => {
-    const link = createElement("a", "quick-link", provider === "Apple Music" ? "Apple" : provider === "YouTube Music" ? "YouTube" : provider);
-    link.href = providerUrl(track, provider);
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    link.setAttribute("aria-label", `Open ${track.title} in ${provider}`);
-    links.append(link);
+  const trackList = createElement("div", "shared-tracks");
+  tracks.forEach((track, index) => {
+    const row = createElement("div", "feed-track");
+    const playbackKey = `share:${share.id}:${index}`;
+    const play = createElement("button", "play-button", "▶");
+    play.type = "button";
+    play.dataset.playbackKey = playbackKey;
+    play.dataset.songTitle = track.title;
+    play.setAttribute("aria-label", `Play ${track.title}`);
+    play.addEventListener("click", () => toggleTrackPreview(track, playbackKey));
+
+    const copy = createElement("div", "track-copy");
+    copy.append(createElement("h3", "", track.title), createElement("p", "", track.artist));
+
+    const links = createElement("div", "quick-links");
+    ["Spotify", "Apple Music", "YouTube Music"].forEach((provider) => {
+      const link = createElement("a", "quick-link", provider === "Apple Music" ? "Apple" : provider === "YouTube Music" ? "YouTube" : provider);
+      link.href = providerUrl(track, provider);
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.setAttribute("aria-label", `Open ${track.title} in ${provider}`);
+      links.append(link);
+    });
+
+    row.append(play, image(track.artwork, `Artwork for ${track.title}`), copy, links);
+    trackList.append(row);
   });
+  article.append(trackList);
 
-  article.append(play, image(track.artwork, `Artwork for ${track.title}`), copy, links);
   const note = cleanText(share.note, 280);
   if (note) article.append(createElement("p", "note", `“${note}”`));
   return article;
@@ -532,13 +573,17 @@ function renderShare(share) {
 function renderFeed() {
   feedList.replaceChildren();
   feedStatus.textContent = "";
-  feedCount.textContent = state.shares.length ? `${state.shares.length} ${state.shares.length === 1 ? "song" : "songs"}` : "";
+  const trackCount = state.shares.reduce((count, share) => count + tracksFromShare(share).length, 0);
+  feedCount.textContent = trackCount ? `${trackCount} ${trackCount === 1 ? "song" : "songs"}` : "";
   if (!state.shares.length) {
     feedList.append(createElement("p", "empty-feed", "No songs yet."));
     return;
   }
   const fragment = document.createDocumentFragment();
-  state.shares.forEach((share) => fragment.append(renderShare(share)));
+  state.shares.forEach((share) => {
+    const item = renderShare(share);
+    if (item) fragment.append(item);
+  });
   feedList.append(fragment);
   updatePlaybackUI();
 }

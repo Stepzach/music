@@ -8,12 +8,13 @@
 //   - senderName: string, 1–40 characters; a display name only
 //   - note: string, 0–280 characters
 //   - createdAt: timestamp equal to the server time at creation
-//   - track: map with exactly these fields:
+//   - tracks: list of 1–12 maps, each with exactly these fields:
 //       id (string, 1–60 URL-safe characters), title (string, 1–120),
 //       artist (string, 1–120), album (string, 0–140), artwork (http(s) URL
 //       or empty, <= 512), previewUrl (http(s) URL, 1–512), appleUrl
 //       (http(s) URL or empty, <= 512), durationMs (number, 0–900000),
 //       explicit (boolean).
+//   - track: the same single-track map is accepted only for legacy documents.
 //
 // The public music wall is deliberately anonymous because the product has no
 // sign-in. It exposes only the submitter's chosen display name and note—never
@@ -73,14 +74,34 @@ service cloud.firestore {
         track.explicit is bool;
     }
 
+    function isValidTracks(tracks) {
+      return tracks is list && tracks.size() >= 1 && tracks.size() <= 12 &&
+        isValidTrack(tracks[0]) &&
+        (tracks.size() < 2 || isValidTrack(tracks[1])) &&
+        (tracks.size() < 3 || isValidTrack(tracks[2])) &&
+        (tracks.size() < 4 || isValidTrack(tracks[3])) &&
+        (tracks.size() < 5 || isValidTrack(tracks[4])) &&
+        (tracks.size() < 6 || isValidTrack(tracks[5])) &&
+        (tracks.size() < 7 || isValidTrack(tracks[6])) &&
+        (tracks.size() < 8 || isValidTrack(tracks[7])) &&
+        (tracks.size() < 9 || isValidTrack(tracks[8])) &&
+        (tracks.size() < 10 || isValidTrack(tracks[9])) &&
+        (tracks.size() < 11 || isValidTrack(tracks[10])) &&
+        (tracks.size() < 12 || isValidTrack(tracks[11]));
+    }
+
     // Domain validator. This is called on every permitted write to shares.
     function isValidShare(data) {
       return data is map &&
-        hasExactKeys(data, ['senderName', 'note', 'createdAt', 'track']) &&
         validString(data.senderName, 1, 40) &&
         validString(data.note, 0, 280) &&
         data.createdAt is timestamp && data.createdAt == request.time &&
-        isValidTrack(data.track);
+        (
+          (hasExactKeys(data, ['senderName', 'note', 'createdAt', 'track']) &&
+            isValidTrack(data.track)) ||
+          (hasExactKeys(data, ['senderName', 'note', 'createdAt', 'tracks']) &&
+            isValidTracks(data.tracks))
+        );
     }
 
     // =============================================================

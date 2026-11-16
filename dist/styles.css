@@ -19,10 +19,12 @@
 html { background: var(--paper); }
 
 body {
+  position: relative;
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
   overflow-x: hidden;
+  isolation: isolate;
   background: var(--paper);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -34,6 +36,11 @@ html.is-playing #disco-spots {
   mix-blend-mode: multiply !important;
   opacity: .46 !important;
 }
+
+/* Keep the copied CodePen light paths on the paper itself, below every control. */
+#disco-spots { z-index: 0 !important; }
+#disco-rig { z-index: 2 !important; }
+#disco-line { width: 2px !important; background: rgba(21,21,21,.86) !important; }
 
 button, input { font: inherit; }
 
@@ -57,6 +64,8 @@ a { color: inherit; }
 .skip-link:focus { top: 1rem; }
 
 .masthead {
+  position: relative;
+  z-index: 1;
   padding: 151px 20px 34px;
   text-align: center;
 }
@@ -78,6 +87,8 @@ h1 {
 }
 
 .page-shell {
+  position: relative;
+  z-index: 1;
   width: min(940px, calc(100% - 40px));
   margin: 0 auto;
 }
@@ -327,7 +338,11 @@ input::placeholder { color: #94938e; opacity: 1; }
 
 .pick-mark::after { transform: translate(-50%, -50%) rotate(90deg); }
 
-.selected-track { margin-top: 12px; }
+.selected-track {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
 
 .selected-song-summary {
   display: grid;
@@ -415,7 +430,6 @@ input::placeholder { color: #94938e; opacity: 1; }
 
 .add-another-song {
   display: inline-flex;
-  margin-top: 8px;
   padding: 4px 1px;
   border: 0;
   background: transparent;
@@ -496,21 +510,32 @@ input::placeholder { color: #94938e; opacity: 1; }
 .feed-list { margin-top: 14px; }
 
 .feed-item {
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
-  grid-template-areas:
-    "play cover content"
-    "play . links"
-    "note note note";
-  align-items: center;
-  gap: 0 12px;
   padding: 15px 0;
   border-bottom: 1px solid var(--line);
 }
 
 .feed-item:first-child { border-top: 1px solid var(--line); }
 
-.feed-item .cover { grid-area: cover; width: 48px; }
+.share-meta { margin: 0 0 10px; }
+
+.shared-tracks { display: grid; gap: 10px; }
+
+.feed-track {
+  display: grid;
+  grid-template-columns: 42px 48px minmax(0, 1fr);
+  grid-template-areas:
+    "play cover content"
+    "play . links";
+  align-items: center;
+  gap: 0 12px;
+}
+
+.feed-track + .feed-track {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.feed-track .cover { grid-area: cover; width: 48px; }
 
 .play-button {
   grid-area: play;
@@ -539,9 +564,8 @@ input::placeholder { color: #94938e; opacity: 1; }
 .track-copy h3 { font-size: 19px; }
 
 .shared-meta {
-  margin-top: 3px !important;
   font-family: ui-sans-serif, system-ui, sans-serif;
-  font-size: 12px !important;
+  font-size: 12px;
 }
 
 .shared-meta b { color: var(--ink); font-weight: 600; }
@@ -574,7 +598,6 @@ input::placeholder { color: #94938e; opacity: 1; }
 .quick-link:hover { border-color: #b6b4ad; background: var(--tint); color: var(--ink); }
 
 .note {
-  grid-area: note;
   margin: 12px 0 0;
   padding: 10px 12px;
   border-left: 2px solid #d9d7ea;
@@ -635,15 +658,14 @@ input::placeholder { color: #94938e; opacity: 1; }
   .selected-song-summary { grid-template-columns: 48px minmax(0, 1fr) auto; gap: 10px; }
   .artwork-preview,
   .artwork-preview .cover { width: 48px; height: 48px; }
-  .feed-item {
+  .feed-track {
     grid-template-columns: 39px 43px minmax(0, 1fr);
     grid-template-areas:
       "play cover content"
-      "links links links"
-      "note note note";
+      "links links links";
     gap: 6px 10px;
   }
-  .feed-item .cover { width: 43px; }
+  .feed-track .cover { width: 43px; }
   .track-copy { align-self: center; padding-bottom: 0; }
   .quick-links { padding-top: 4px; }
   .note { margin-top: 7px; }
