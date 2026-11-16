@@ -126,8 +126,8 @@ function providerIcon(provider) {
     );
   } else {
     svg.append(
-      createSvgElement("rect", { x: "2", y: "2", width: "20", height: "20", rx: "5" }),
-      createSvgElement("path", { d: "M15.5 6.4v8.25a3.1 3.1 0 1 1-1.35-2.55V8.25l-5.15 1.22v6.12a3.1 3.1 0 1 1-1.35-2.55V8.4l7.85-2Z" })
+      createSvgElement("rect", { class: "apple-music-tile", x: "2", y: "2", width: "20", height: "20", rx: "5.4" }),
+      createSvgElement("path", { class: "apple-music-note", d: "M15.8 5.7v9.02a2.78 2.78 0 1 1-1.25-2.31V8.23l-5.1 1.2v6.17a2.78 2.78 0 1 1-1.25-2.31V8.36L15.8 5.7Z" })
     );
   }
 

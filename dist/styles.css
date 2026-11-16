@@ -549,6 +549,9 @@ input::placeholder { color: var(--placeholder); opacity: 1; }
 .share-button:active:not(:disabled) { transform: scale(.98); }
 .share-button:disabled { cursor: not-allowed; opacity: .35; }
 
+html[data-theme="dark"] .share-button,
+html[data-theme="dark"] .play-button { color: #151515; }
+
 .form-status { min-height: 18px; margin: 7px 2px 0; }
 
 .feed-heading { align-items: end; }
@@ -654,16 +657,16 @@ input::placeholder { color: var(--placeholder); opacity: 1; }
   height: 15px;
 }
 
-.provider-icon svg { fill: currentColor; }
-.spotify-icon path,
-.apple-music-icon path {
+.spotify-icon svg { fill: currentColor; }
+.spotify-icon path {
   fill: none;
   stroke: var(--surface);
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 .spotify-icon path { stroke-width: 1.45; }
-.apple-music-icon path { stroke-width: 1.45; }
+.apple-music-icon .apple-music-tile { fill: currentColor; }
+.apple-music-icon .apple-music-note { fill: #fff; }
 
 .note {
   position: relative;
