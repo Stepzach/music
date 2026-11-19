@@ -112,8 +112,20 @@ const memberDialog = $("#member-dialog");
 const memberDialogList = $("#member-dialog-list");
 const closeMemberDialog = $("#close-member-dialog");
 const routeLoader = $("#route-loader");
+const descriptionMeta = $("meta[name='description']");
+const ogTitleMeta = $("#og-title");
+const ogDescriptionMeta = $("#og-description");
+const ogUrlMeta = $("#og-url");
+const twitterTitleMeta = $("#twitter-title");
+const twitterDescriptionMeta = $("#twitter-description");
 const DISCO_ENGINE_URL = "./disco-engine.js?v=20261119-7";
 const MAX_TRACKS_PER_SHARE = 12;
+const SITE_TITLE = "Resonance";
+const SITE_DESCRIPTION = "Shared playlists for the people you love.";
+
+if ("scrollRestoration" in window.history) {
+  window.history.scrollRestoration = "manual";
+}
 const THEME_OVERRIDE_STORAGE_KEY = "resonance-theme-override";
 const LEGACY_THEME_STORAGE_KEY = "resonance-theme";
 const DAY_START_HOUR = 7;
@@ -1097,11 +1109,32 @@ function setMasthead(tagline) {
   mastheadTagline.textContent = tagline;
 }
 
+function setPageMetadata(playlistName = "") {
+  const name = cleanText(playlistName, 60);
+  const title = name ? `${name} · ${SITE_TITLE}` : SITE_TITLE;
+  const description = name
+    ? `${name} — a shared playlist on ${SITE_TITLE}.`
+    : SITE_DESCRIPTION;
+
+  document.title = title;
+  descriptionMeta?.setAttribute("content", description);
+  ogTitleMeta?.setAttribute("content", title);
+  ogDescriptionMeta?.setAttribute("content", description);
+  ogUrlMeta?.setAttribute("content", window.location.href);
+  twitterTitleMeta?.setAttribute("content", title);
+  twitterDescriptionMeta?.setAttribute("content", description);
+}
+
+function scrollToPageTop() {
+  window.scrollTo(0, 0);
+}
+
 function showView(name) {
   authView.hidden = name !== "auth";
   homeView.hidden = name !== "home";
   playlistView.hidden = name !== "playlist";
   playlistFixedActions.hidden = name !== "playlist";
+  scrollToPageTop();
 }
 
 function finishInitialRouteLoad() {
@@ -1174,6 +1207,7 @@ function showAuth(mode = "signUp") {
   }
 
   setMasthead("Shared playlists");
+  setPageMetadata();
   showView("auth");
 }
 
@@ -1633,6 +1667,7 @@ function subscribeToActivePlaylist() {
     }
     state.communityPlaylists = state.communityPlaylists.map((item) => item.id === playlistId ? { ...item, ...details } : item);
     setMasthead(state.activePlaylist.playlistName || "Shared playlist");
+    setPageMetadata(state.activePlaylist.playlistName);
     renderPlaylistDetails();
     renderHome();
   }, (error) => console.error(error));
@@ -1698,6 +1733,7 @@ function enterPlaylist(playlist, { updateRoute = true } = {}) {
     role: membership?.role || playlist.role || "viewer",
   };
   setMasthead(state.activePlaylist.playlistName || "Shared playlist");
+  setPageMetadata(state.activePlaylist.playlistName);
   showView("playlist");
   renderPlaylistDetails();
   subscribeToActivePlaylist();
@@ -1714,6 +1750,7 @@ function backToHome({ updateRoute = true } = {}) {
   state.activePlaylist = null;
   state.shares = [];
   setMasthead("Your shared playlists");
+  setPageMetadata();
   showView("home");
   renderHome();
   if (updateRoute) clearPlaylistRoute();
@@ -1730,6 +1767,7 @@ function writePlaylistRoute(code, { replace = false } = {}) {
   if (playlistRouteCode() === code) return;
   url.searchParams.set("playlist", code);
   window.history[replace ? "replaceState" : "pushState"]({}, "", `${url.pathname}${url.search}${url.hash}`);
+  ogUrlMeta?.setAttribute("content", window.location.href);
 }
 
 function clearPlaylistRoute({ replace = false } = {}) {
@@ -1737,12 +1775,14 @@ function clearPlaylistRoute({ replace = false } = {}) {
   const url = new URL(window.location.href);
   url.searchParams.delete("playlist");
   window.history[replace ? "replaceState" : "pushState"]({}, "", `${url.pathname}${url.search}${url.hash}`);
+  ogUrlMeta?.setAttribute("content", window.location.href);
 }
 
 function showJoinForRoute(code) {
   if (state.activePlaylist) backToHome({ updateRoute: false });
   else {
     setMasthead("Your shared playlists");
+    setPageMetadata();
     showView("home");
     renderHome();
   }
@@ -1811,6 +1851,7 @@ async function showResolvedDestination() {
     return;
   }
   setMasthead("Your shared playlists");
+  setPageMetadata();
   showView("home");
   renderHome();
 }
@@ -2096,6 +2137,7 @@ async function renameActivePlaylist(name) {
     playlistName,
   } : playlist);
   setMasthead(playlistName);
+  setPageMetadata(playlistName);
   renderPlaylistDetails();
   renderHome();
 }
