@@ -85,6 +85,7 @@ const closeJoinPlaylist = $("#close-join-playlist");
 const joinCodeInput = $("#join-code");
 const joinPlaylistButton = $("#join-playlist-button");
 const joinPlaylistStatus = $("#join-playlist-status");
+const playlistFixedActions = $("#playlist-fixed-actions");
 const backToPlaylists = $("#back-to-playlists");
 const playlistMembersSummary = $("#playlist-members-summary");
 const leavePlaylist = $("#leave-playlist");
@@ -262,6 +263,15 @@ function cleanText(value, maxLength = 0) {
   return maxLength ? text.slice(0, maxLength) : text;
 }
 
+function nameWithYou(displayName, userId, fallback = "someone") {
+  const name = cleanText(displayName, 40);
+  const id = cleanText(userId, 128);
+  if (id && id === state.user?.uid) {
+    return name && name.toLocaleLowerCase() !== "you" ? `${name} (you)` : "you";
+  }
+  return name || fallback;
+}
+
 function safeUrl(value) {
   try {
     const url = new URL(String(value || ""));
@@ -282,6 +292,9 @@ function image(url, alt, className = "cover") {
 }
 
 function toast(message, type = "success") {
+  // Routine actions are already reflected in the interface. Keep this space
+  // quiet, while still surfacing errors that need a person's attention.
+  if (type !== "error") return;
   const notice = createElement("div", `toast${type === "error" ? " error" : ""}`, message);
   toastRoot.append(notice);
   window.setTimeout(() => notice.remove(), 3600);
@@ -839,7 +852,6 @@ async function deleteShare(share, button) {
   try {
     await deleteDoc(doc(db, "sharedPlaylists", state.activePlaylist.id, "shares", share.id));
     playlistSongTotals.delete(state.activePlaylist.id);
-    toast("Deleted.");
   } catch (error) {
     button.disabled = false;
     toast("Couldn’t delete that. Try again.", "error");
@@ -934,7 +946,6 @@ async function toggleTrackPreview(track, playbackKey) {
       void refreshDeezerPreview(track, { force: true }).then((previewUrl) => {
         if (previewUrl) {
           track.previewUrl = previewUrl;
-          toast("Preview refreshed — tap play again.");
         } else {
           toast("Preview couldn’t play in this browser.", "error");
         }
@@ -967,7 +978,7 @@ function renderShare(share) {
   const meta = createElement("div", "shared-meta share-meta");
   const metaCopy = createElement("span", "share-meta-copy");
   metaCopy.append(
-    createElement("b", "", cleanText(share.senderName, 40) || "someone"),
+    createElement("b", "", nameWithYou(share.senderName, share.senderUid)),
     document.createTextNode(` · ${relativeTime(share.createdAt)}`)
   );
   const metaActions = createElement("div", "share-meta-actions");
@@ -1090,26 +1101,22 @@ function showView(name) {
   authView.hidden = name !== "auth";
   homeView.hidden = name !== "home";
   playlistView.hidden = name !== "playlist";
+  playlistFixedActions.hidden = name !== "playlist";
 }
 
 function finishInitialRouteLoad() {
   if (!state.initialRouteLoading || state.initialRouteRevealed) return;
   state.initialRouteRevealed = true;
 
-  const titleBounds = mastheadTitle.getBoundingClientRect();
-  const loaderWidth = Math.max(100, Math.min(190, window.innerWidth * .15));
-  const loaderRadius = loaderWidth * .38;
-  const targetY = Math.max(loaderRadius + 8, Math.round(titleBounds.top - loaderRadius - 16));
-  document.documentElement.style.setProperty("--route-loader-target-y", `${targetY}px`);
   document.documentElement.classList.add("is-route-revealing");
   window.__discoHold = false;
   window.__discoSkipEntrance = true;
 
-  window.setTimeout(cueDisco, 620);
+  window.setTimeout(cueDisco, 250);
   window.setTimeout(() => {
     document.documentElement.classList.remove("is-route-loading", "is-route-revealing");
     routeLoader?.remove();
-  }, 980);
+  }, 480);
 }
 
 function readableError(error, fallback = "Something went wrong. Try again.") {
@@ -1509,7 +1516,7 @@ function renderMemberDialog() {
   memberDialogList.replaceChildren();
 
   const creator = createElement("section", "member-dialog-creator");
-  const creatorLine = createElement("p", "member-dialog-creator-name", `Creator: ${creatorName}`);
+  const creatorLine = createElement("p", "member-dialog-creator-name", `Creator: ${nameWithYou(creatorName, playlist.ownerUid)}`);
   creatorLine.append(document.createTextNode(" "));
   creatorLine.append(createElement("span", "member-dialog-created-on", `(on: ${playlistCardDate(playlist.createdAt)})`));
   creator.append(creatorLine);
@@ -1523,7 +1530,7 @@ function renderMemberDialog() {
     contributors.forEach((contributor) => {
       const row = createElement("li", "member-contribution-row");
       row.append(
-        createElement("span", "member-contribution-name", contributor.name),
+        createElement("span", "member-contribution-name", nameWithYou(contributor.name, contributor.id)),
         createElement("span", "member-contribution-count", songCountLabel(contributor.songCount))
       );
       list.append(row);
@@ -1539,7 +1546,7 @@ function memberNames() {
   const contributors = new Map();
   const addContributor = (userId, displayName) => {
     const contributor = contributorIdentity(userId, displayName);
-    if (contributor && !contributors.has(contributor.key)) contributors.set(contributor.key, contributor.name);
+    if (contributor && !contributors.has(contributor.key)) contributors.set(contributor.key, contributor);
   };
 
   state.activeMembers.forEach((member) => {
@@ -1554,11 +1561,11 @@ function memberNames() {
   // still on the playlist. Active member order remains first.
   state.shares.forEach((share) => addContributor(share.senderUid, share.senderName));
 
-  const names = [...contributors.values()];
+  const names = [...contributors.values()].map((contributor) => nameWithYou(contributor.name, contributor.id));
   if (names.length) return names;
   if (!isActivePlaylistMember()) return [];
   const fallback = cleanText(state.profile?.displayName, 40);
-  return fallback ? [fallback] : [];
+  return fallback ? [nameWithYou(fallback, state.user?.uid)] : [];
 }
 
 function renderPlaylistDetails() {
@@ -1583,7 +1590,7 @@ function renderPlaylistDetails() {
       playlistMembersSummary.append(overflow);
     }
   } else if (isPublic) {
-    playlistMembersSummary.textContent = `Created by ${ownerNameForPlaylist(state.activePlaylist)}`;
+    playlistMembersSummary.textContent = `Created by ${nameWithYou(ownerNameForPlaylist(state.activePlaylist), state.activePlaylist.ownerUid)}`;
   }
 
   const code = cleanText(state.activePlaylist?.inviteCode, 4);
@@ -1930,7 +1937,6 @@ async function joinActivePublicPlaylist() {
     joinPublicPlaylistStatus.textContent = "";
     subscribeToActiveMembers();
     renderPlaylistDetails();
-    toast("Joined.");
   } catch (error) {
     console.error(error);
     joinPublicPlaylistStatus.textContent = readableError(error, error?.message || "Couldn’t join that playlist.");
@@ -1991,7 +1997,6 @@ async function leaveActivePlaylist() {
   } catch (error) {
     console.error(error);
   }
-  toast("Left playlist.");
 }
 
 function setInviteDialogOpen(open) {
@@ -2125,7 +2130,6 @@ async function deleteActivePlaylist() {
 
     state.memberships = state.memberships.filter((membership) => membership.id !== playlist.id);
     syncMembershipMetadataSubscriptions();
-    toast("Playlist deleted.");
     backToHome();
   } catch (error) {
     console.error(error);
@@ -2247,7 +2251,6 @@ accountForm.addEventListener("submit", async (event) => {
   accountStatus.textContent = "";
   try {
     await updateCurrentProfileName(accountNameInput.value);
-    toast("Saved.");
     setAccountDialogOpen(false);
   } catch (error) {
     console.error(error);

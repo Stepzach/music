@@ -29,12 +29,18 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300..700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
-    <link rel="stylesheet" href="./styles.css?v=20261119-12" />
+    <link rel="stylesheet" href="./styles.css?v=20261119-13" />
   </head>
   <body>
     <a class="skip-link" href="#app-root">Skip to the app</a>
     <div id="route-loader" class="route-loader" aria-hidden="true">
-      <img class="route-loader-ball" src="./assets/disco-ball-icon.png?v=3" alt="" />
+      <span class="route-loader-spinner"></span>
+    </div>
+    <div id="playlist-fixed-actions" class="playlist-fixed-actions" hidden>
+      <button id="back-to-playlists" class="playlist-back-button" type="button">
+        <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
+        <span>All playlists</span>
+      </button>
     </div>
     <div class="top-controls">
       <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch to dark mode" aria-pressed="false" title="Switch to dark mode" data-theme="light">
@@ -47,7 +53,6 @@
         <i class="fa-solid fa-user" aria-hidden="true"></i>
       </button>
     </div>
-
     <header class="masthead">
       <h1 id="masthead-title" data-disco-target>resonance</h1>
       <p id="masthead-tagline" class="tagline">Shared playlists</p>
@@ -151,13 +156,6 @@
       </section>
 
       <section id="playlist-view" class="app-view playlist-view" aria-label="Shared playlist" hidden>
-        <div id="playlist-fixed-actions" class="playlist-fixed-actions">
-          <button id="back-to-playlists" class="playlist-back-button" type="button">
-            <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
-            <span>All playlists</span>
-          </button>
-        </div>
-
         <div class="playlist-details" aria-label="Playlist details">
           <div class="playlist-members">
             <div id="playlist-members-summary" class="playlist-members-summary" aria-live="polite"></div>
@@ -294,6 +292,6 @@
 
     <audio id="preview-audio" preload="none"></audio>
     <div id="toast-root" class="toast-root" aria-live="polite" aria-atomic="true"></div>
-    <script type="module" src="./app.js?v=20261119-12"></script>
+    <script type="module" src="./app.js?v=20261119-13"></script>
   </body>
 </html>

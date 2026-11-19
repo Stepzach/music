@@ -128,24 +128,28 @@ a { color: inherit; }
   transition: opacity .28s ease .25s;
 }
 
-.route-loader-ball {
-  position: fixed;
-  z-index: 1;
-  top: calc(100svh - 75px);
+.route-loader-spinner {
+  position: absolute;
+  top: 50%;
   left: 50%;
-  width: clamp(100px, 15vw, 190px);
-  height: auto;
-  filter: drop-shadow(0 12px 20px rgba(0, 0, 0, .14));
-  clip-path: circle(38% at 50% 50%);
+  width: 30px;
+  aspect-ratio: 1;
+  border: 2px solid var(--line);
+  border-top-color: var(--ink);
+  border-radius: 50%;
   opacity: 1;
   pointer-events: none;
-  transform: translate(-50%, -50%) rotate(-9deg);
-  transition: top .78s cubic-bezier(.26, .95, .4, 1), transform .78s cubic-bezier(.26, .95, .4, 1), opacity .18s ease .62s;
+  transform: translate(-50%, -50%);
+  animation: route-spinner .72s linear infinite;
+  transition: opacity .16s ease;
 }
+
+@keyframes route-spinner { to { transform: translate(-50%, -50%) rotate(1turn); } }
 
 html.is-route-loading .route-loader { display: block; }
 
 html.is-route-loading .top-controls,
+html.is-route-loading .playlist-fixed-actions,
 html.is-route-loading .masthead,
 html.is-route-loading .page-shell {
   opacity: 0;
@@ -156,13 +160,13 @@ html.is-route-loading .page-shell {
 
 html.is-route-loading.is-route-revealing .route-loader::before { opacity: 0; }
 
-html.is-route-loading.is-route-revealing .route-loader-ball {
-  top: var(--route-loader-target-y, 100px);
+html.is-route-loading.is-route-revealing .route-loader-spinner {
   opacity: 0;
-  transform: translate(-50%, -50%) rotate(0deg) scale(.88);
+  animation-play-state: paused;
 }
 
 html.is-route-loading.is-route-revealing .top-controls,
+html.is-route-loading.is-route-revealing .playlist-fixed-actions,
 html.is-route-loading.is-route-revealing .masthead,
 html.is-route-loading.is-route-revealing .page-shell {
   opacity: 1;
@@ -171,21 +175,20 @@ html.is-route-loading.is-route-revealing .page-shell {
 }
 
 .top-controls {
-  position: fixed;
+  position: absolute;
   z-index: 55;
   top: max(18px, env(safe-area-inset-top));
   right: max(18px, env(safe-area-inset-right));
   display: flex;
   align-items: center;
   gap: 8px;
-  transform: translateZ(0);
 }
 
 .theme-toggle {
   position: relative;
   display: flex;
   width: 75px !important;
-    height: 28px !important;
+  height: 31px !important;
   padding: 2px;
   border: 1px solid var(--quiet-control-border);
   border-radius: 7px;
@@ -1288,11 +1291,10 @@ html[data-theme="dark"] .play-button { color: #151515; }
 
 /* Shared-playlist details */
 .playlist-fixed-actions {
-  position: fixed;
+  position: absolute;
   z-index: 55;
   top: max(18px, env(safe-area-inset-top));
   left: max(18px, env(safe-area-inset-left));
-  transform: translateZ(0);
 }
 
 .playlist-back-button {
@@ -1440,7 +1442,7 @@ html[data-theme="dark"] .play-button { color: #151515; }
 }
 
 .member-dialog::backdrop,
-.popup-dialog::backdrop { background: rgba(0, 0, 0, .22); }
+.popup-dialog::backdrop { background: rgba(0, 0, 0, .28); }
 
 .member-dialog-card,
 .popup-dialog-card { padding: 18px; }
@@ -1465,13 +1467,19 @@ html[data-theme="dark"] .play-button { color: #151515; }
   place-items: center;
   border: 0;
   background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  box-shadow: none;
   color: var(--muted);
   cursor: pointer;
   font-size: 17px;
   line-height: 1;
   transition: color .16s ease, transform .16s ease;
+  -webkit-tap-highlight-color: transparent;
 }
 
+.dialog-close:focus { outline: 0; box-shadow: none; }
+.dialog-close:focus-visible { outline: 1px solid var(--ink); outline-offset: 2px; }
 .dialog-close:hover { color: var(--ink); }
 .dialog-close:active { transform: scale(.9); }
 .dialog-close i { pointer-events: none; }
@@ -1686,5 +1694,9 @@ html[data-theme="dark"] .play-button { color: #151515; }
   .invite-people .invite-symbol { font-size: 14px; }
 
   .member-dialog::backdrop,
-  .popup-dialog::backdrop { background: rgba(0, 0, 0, .38); }
+  .popup-dialog::backdrop { background: rgba(0, 0, 0, .48); }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .dialog-close:focus-visible { outline: 0; box-shadow: none; }
 }
