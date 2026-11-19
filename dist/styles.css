@@ -955,15 +955,35 @@ html[data-theme="dark"] .play-button { color: #151515; }
   font-size: 14px;
 }
 
-.home-heading { margin-top: 26px; }
+.home-view { padding-bottom: 48px; }
+
+.home-discovery {
+  display: grid;
+  justify-items: center;
+  width: min(100%, 520px);
+  margin: 0 auto 35px;
+}
+
+.playlist-groups { display: grid; gap: 33px; }
+
+.playlist-section { min-width: 0; }
+
+.playlist-section-heading { margin-bottom: 12px; }
+
+.playlist-section-heading h2 {
+  font-size: clamp(1.35rem, 2.7vw, 1.6rem);
+  font-weight: 500;
+}
 
 .playlist-list {
   display: grid;
   gap: 8px;
-  margin-top: 14px;
 }
 
-.playlist-list .empty-feed { padding-top: 18px; }
+.playlist-list .empty-feed {
+  padding: 4px 1px;
+  color: var(--muted);
+}
 
 .playlist-card {
   display: flex;
@@ -1003,10 +1023,29 @@ html[data-theme="dark"] .play-button { color: #151515; }
   font-size: 13px;
 }
 
+.playlist-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 6px;
+  line-height: 1.35;
+}
+
+.playlist-card-meta > span + span::before {
+  margin-right: 6px;
+  color: var(--placeholder);
+  content: "·";
+}
+
+.playlist-card-meta .playlist-public-label {
+  color: var(--ink);
+}
+
 .home-actions {
   display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
   gap: 8px;
-  margin-top: 18px;
+  margin: 0;
 }
 
 .inline-form {
@@ -1017,7 +1056,76 @@ html[data-theme="dark"] .play-button { color: #151515; }
   margin-top: 13px;
 }
 
+.home-discovery .inline-form { width: 100%; }
+
+.inline-form-title {
+  grid-column: 1 / -1;
+  margin: 12px 0 0;
+  font-size: 22px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.create-playlist-form > label,
+.create-playlist-form > .visibility-choice { grid-column: 1 / -1; }
+
+.visibility-choice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.visibility-choice legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.visibility-choice label {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--quiet-control-border);
+  border-radius: 999px;
+  background: var(--quiet-control);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.visibility-choice input {
+  width: 13px !important;
+  height: 13px !important;
+  min-height: 0 !important;
+  margin: 0;
+  padding: 0 !important;
+  accent-color: var(--ink);
+}
+
+.visibility-choice label > span {
+  margin: 0 !important;
+  color: inherit !important;
+  font-size: inherit !important;
+}
+
+.create-playlist-form .share-button {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
 .inline-form .share-button { width: auto; }
+.create-playlist-form .share-button { width: 100%; }
 .inline-form .form-status { grid-column: 1 / -1; }
 
 .code-input {
@@ -1050,7 +1158,7 @@ html[data-theme="dark"] .play-button { color: #151515; }
 @media (max-width: 640px) {
   .auth-view { margin-bottom: 38px; }
   .auth-card { padding: 16px; }
-  .home-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .home-actions { display: grid; width: 100%; grid-template-columns: 1fr; }
   .home-actions .quiet-button { width: 100%; }
   .inline-form,
   .playlist-share-fields { grid-template-columns: 1fr; }
@@ -1120,6 +1228,35 @@ html[data-theme="dark"] .play-button { color: #151515; }
 }
 
 .playlist-delete-action { color: var(--muted); }
+
+.join-to-share {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px 14px;
+  margin: 0 0 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--note-surface);
+}
+
+.join-to-share > p:first-child {
+  font-size: 17px;
+  line-height: 1.2;
+}
+
+.join-to-share .quiet-button {
+  min-height: 34px;
+  padding: 0 13px;
+  font-size: 14px;
+}
+
+.join-to-share .form-status {
+  flex-basis: 100%;
+  margin: 0;
+}
 
 /* The form previously ended flush with the composer border. */
 .playlist-view .composer-content { padding-bottom: 13px; }

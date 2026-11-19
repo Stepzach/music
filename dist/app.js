@@ -1,6 +1,7 @@
 import {
   addDoc,
   auth,
+  authPersistenceReady,
   collection,
   collectionGroup,
   createUserWithEmailAndPassword,
@@ -25,7 +26,7 @@ import {
   updateProfile,
   where,
   writeBatch,
-} from "./firebase.js?v=20261119-5";
+} from "./firebase.js?v=20261119-6";
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -35,6 +36,7 @@ const searchStatus = $("#search-status");
 const searchResults = $("#search-results");
 const selectedTrack = $("#selected-track");
 const shareForm = $("#share-form");
+const composer = $(".composer");
 const shareButton = $("#share-button");
 const shareStatus = $("#share-status");
 const noteInput = $("#song-note");
@@ -72,12 +74,14 @@ const accountEmail = $("#account-email");
 const accountSaveButton = $("#account-save");
 const accountStatus = $("#account-status");
 const accountSignOut = $("#account-sign-out");
-const playlistList = $("#playlist-list");
+const yourPlaylistList = $("#your-playlist-list");
+const communityPlaylistList = $("#community-playlist-list");
 const homeStatus = $("#home-status");
 const showCreatePlaylist = $("#show-create-playlist");
 const showJoinPlaylist = $("#show-join-playlist");
 const createPlaylistForm = $("#create-playlist-form");
 const createPlaylistName = $("#new-playlist-name");
+const selectedPlaylistVisibility = () => document.querySelector("input[name='playlist-visibility']:checked")?.value || "private";
 const createPlaylistButton = $("#create-playlist-button");
 const createPlaylistStatus = $("#create-playlist-status");
 const joinPlaylistForm = $("#join-playlist-form");
@@ -98,6 +102,9 @@ const renamePlaylistName = $("#rename-playlist-name");
 const renamePlaylistButton = $("#rename-playlist-button");
 const renamePlaylistStatus = $("#rename-playlist-status");
 const deletePlaylistButton = $("#delete-playlist");
+const joinToShare = $("#join-to-share");
+const joinPublicPlaylistButton = $("#join-public-playlist");
+const joinPublicPlaylistStatus = $("#join-public-playlist-status");
 const memberDialog = $("#member-dialog");
 const memberDialogList = $("#member-dialog-list");
 const closeMemberDialog = $("#close-member-dialog");
@@ -120,13 +127,16 @@ const state = {
   user: null,
   profile: null,
   memberships: [],
+  communityPlaylists: [],
   activePlaylist: null,
   activeMembers: [],
   authMode: "signUp",
   membershipUnsubscribe: null,
+  communityUnsubscribe: null,
   feedUnsubscribe: null,
   memberUnsubscribe: null,
   playlistUnsubscribe: null,
+  routeRequest: 0,
 };
 const deezerPreviewCache = new Map();
 const deezerPreviewRequests = new Map();
@@ -135,6 +145,9 @@ const appleUrlRequests = new Map();
 let feedPreviewRefreshTimer = 0;
 let themeBoundaryTimer = 0;
 const playlistMetadataUnsubscribers = new Map();
+const playlistSongTotalRequests = new Map();
+const playlistSongTotals = new Map();
+const playlistOwnerNameRequests = new Map();
 
 function automaticTheme(now = new Date()) {
   const hour = now.getHours();
@@ -650,6 +663,10 @@ shareForm.addEventListener("submit", async (event) => {
     shareStatus.textContent = "Choose a playlist first.";
     return;
   }
+  if (!isActivePlaylistMember()) {
+    shareStatus.textContent = "Join this playlist to share a song.";
+    return;
+  }
   if (!state.selectedTracks.length) {
     shareStatus.textContent = "Choose a song first.";
     searchInput.focus();
@@ -677,6 +694,7 @@ shareForm.addEventListener("submit", async (event) => {
       createdAt: serverTimestamp(),
     });
     if (state.currentPlaybackKey?.startsWith("draft:")) stopPlayback();
+    playlistSongTotals.delete(state.activePlaylist.id);
     noteInput.value = "";
     state.selectedTracks = [];
     clearSearchQuery();
@@ -810,6 +828,7 @@ async function deleteShare(share, button) {
   button.disabled = true;
   try {
     await deleteDoc(doc(db, "sharedPlaylists", state.activePlaylist.id, "shares", share.id));
+    playlistSongTotals.delete(state.activePlaylist.id);
     toast("Deleted.");
   } catch (error) {
     button.disabled = false;
@@ -1138,12 +1157,21 @@ function clearMembershipSubscription() {
   playlistMetadataUnsubscribers.clear();
 }
 
+function clearCommunitySubscription() {
+  if (state.communityUnsubscribe) state.communityUnsubscribe();
+  state.communityUnsubscribe = null;
+  state.communityPlaylists = [];
+}
+
 function clearPlaylistSubscriptions() {
   if (state.memberUnsubscribe) state.memberUnsubscribe();
   if (state.playlistUnsubscribe) state.playlistUnsubscribe();
   state.memberUnsubscribe = null;
   state.playlistUnsubscribe = null;
   state.activeMembers = [];
+  joinToShare.hidden = true;
+  joinPublicPlaylistStatus.textContent = "";
+  composer.hidden = false;
   renamePlaylistStatus.textContent = "";
   if (memberDialog.open) memberDialog.close();
   if (inviteDialog.open) inviteDialog.close();
@@ -1162,6 +1190,101 @@ function membershipFromDocument(document) {
   const playlistRef = document.ref.parent.parent;
   if (!playlistRef) return null;
   return { id: playlistRef.id, ...document.data() };
+}
+
+function playlistVisibility(value) {
+  return value === "public" ? "public" : "private";
+}
+
+function isPublicPlaylist(playlist) {
+  return playlistVisibility(playlist?.visibility) === "public";
+}
+
+function ownerNameForPlaylist(playlist, membership = null) {
+  const storedName = cleanText(playlist?.ownerName || membership?.ownerName, 40);
+  if (storedName) return storedName;
+  if (cleanText(playlist?.ownerUid, 128) === state.user?.uid) {
+    return cleanText(state.profile?.displayName, 40) || "You";
+  }
+  if (membership?.role === "owner") return cleanText(membership.displayName, 40) || "You";
+  return "Someone";
+}
+
+function playlistDescriptor(id, data = {}, membership = null) {
+  return {
+    id,
+    playlistName: cleanText(data.name || membership?.playlistName, 60) || "Untitled playlist",
+    ownerUid: cleanText(data.ownerUid || membership?.ownerUid, 128),
+    ownerName: ownerNameForPlaylist(data, membership),
+    inviteCode: cleanText(data.joinCode || membership?.inviteCode, 4),
+    visibility: playlistVisibility(data.visibility || membership?.visibility),
+    createdAt: data.createdAt || membership?.createdAt || null,
+    updatedAt: data.updatedAt || membership?.updatedAt || null,
+    role: membership?.role || "viewer",
+  };
+}
+
+function membershipForPlaylist(playlistId) {
+  return state.memberships.find((membership) => membership.id === playlistId) || null;
+}
+
+function activePlaylistMembership() {
+  if (!state.activePlaylist) return null;
+  return membershipForPlaylist(state.activePlaylist.id)
+    || (state.activePlaylist.role === "owner" || state.activePlaylist.role === "member" ? state.activePlaylist : null);
+}
+
+function isActivePlaylistMember() {
+  return Boolean(activePlaylistMembership());
+}
+
+function isActivePlaylistOwner() {
+  return Boolean(state.activePlaylist && state.activePlaylist.ownerUid === state.user?.uid);
+}
+
+function canManageActivePlaylist() {
+  return isActivePlaylistOwner() || (!isPublicPlaylist(state.activePlaylist) && isActivePlaylistMember());
+}
+
+function playlistCardDate(value) {
+  const date = timestampValue(value);
+  return date ? date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "recently";
+}
+
+function songTotalLabel(playlistId) {
+  const total = playlistSongTotals.get(playlistId);
+  if (!Number.isFinite(total)) return "… songs";
+  return `${total} ${total === 1 ? "song" : "songs"}`;
+}
+
+function loadPlaylistSongTotal(playlistId) {
+  if (!playlistId || playlistSongTotals.has(playlistId) || playlistSongTotalRequests.has(playlistId)) return;
+  const request = getDocs(collection(db, "sharedPlaylists", playlistId, "shares"))
+    .then((snapshot) => {
+      const total = snapshot.docs.reduce((count, document) => count + tracksFromShare(document.data()).length, 0);
+      playlistSongTotals.set(playlistId, total);
+      renderHome();
+    })
+    .catch((error) => console.error(error))
+    .finally(() => playlistSongTotalRequests.delete(playlistId));
+  playlistSongTotalRequests.set(playlistId, request);
+}
+
+function loadLegacyPlaylistOwnerName(playlistId, ownerUid) {
+  if (!playlistId || !ownerUid || playlistOwnerNameRequests.has(playlistId)) return;
+  const userId = state.user?.uid;
+  const request = getDoc(doc(db, "sharedPlaylists", playlistId, "members", ownerUid))
+    .then((snapshot) => {
+      if (!userId || state.user?.uid !== userId) return;
+      const ownerName = cleanText(snapshot.data()?.displayName, 40);
+      if (!ownerName) return;
+      state.memberships = state.memberships.map((membership) => membership.id === playlistId ? { ...membership, ownerName } : membership);
+      if (state.activePlaylist?.id === playlistId) state.activePlaylist = { ...state.activePlaylist, ownerName };
+      renderHome();
+      renderPlaylistDetails();
+    })
+    .catch((error) => console.error(error));
+  playlistOwnerNameRequests.set(playlistId, request);
 }
 
 function sortMemberships(items) {
@@ -1206,50 +1329,65 @@ function syncMembershipMetadataSubscriptions() {
     const unsubscribe = onSnapshot(playlistRef, (snapshot) => {
       if (!snapshot.exists()) {
         state.memberships = state.memberships.filter((item) => item.id !== membership.id);
+        playlistSongTotals.delete(membership.id);
         renderHome();
         return;
       }
       const playlist = snapshot.data();
-      state.memberships = state.memberships.map((item) => item.id === membership.id ? {
-        ...item,
-        playlistName: cleanText(playlist.name, 60) || item.playlistName,
-        inviteCode: cleanText(playlist.joinCode, 4) || item.inviteCode,
-        ownerUid: cleanText(playlist.ownerUid, 128),
-      } : item);
+      state.memberships = state.memberships.map((item) => item.id === membership.id
+        ? { ...item, ...playlistDescriptor(membership.id, playlist, item) }
+        : item);
+      if (!cleanText(playlist.ownerName, 40)) {
+        loadLegacyPlaylistOwnerName(membership.id, cleanText(playlist.ownerUid, 128));
+      }
       renderHome();
     }, (error) => console.error(error));
     playlistMetadataUnsubscribers.set(membership.id, unsubscribe);
   });
 }
 
-function renderHome() {
-  playlistList.replaceChildren();
-  homeStatus.textContent = "";
-  updateAccountLabels();
+function renderPlaylistCard(playlist, { community = false } = {}) {
+  const item = createElement("button", `playlist-card${community ? " community-playlist-card" : ""}`);
+  item.type = "button";
+  const ownerName = ownerNameForPlaylist(playlist, membershipForPlaylist(playlist.id));
+  const ownerCopy = playlist.ownerUid === state.user?.uid ? "you" : ownerName;
+  const copy = createElement("span", "playlist-card-copy");
+  const metadata = createElement("span", "playlist-card-meta");
+  metadata.append(
+    createElement("span", "", `by ${ownerCopy}`),
+    createElement("span", "", playlistCardDate(playlist.createdAt)),
+    createElement("span", "", songTotalLabel(playlist.id))
+  );
+  if (isPublicPlaylist(playlist)) metadata.append(createElement("span", "playlist-public-label", "Public"));
+  copy.append(
+    createElement("strong", "", cleanText(playlist.playlistName, 60) || "Untitled playlist"),
+    metadata
+  );
+  item.append(copy);
+  item.addEventListener("click", () => {
+    const membership = membershipForPlaylist(playlist.id);
+    enterPlaylist(membership || playlist);
+  });
+  loadPlaylistSongTotal(playlist.id);
+  return item;
+}
 
-  if (!state.memberships.length) {
-    playlistList.append(createElement("p", "empty-feed", "Nothing here yet. Make one or join one."));
+function renderPlaylistGroup(target, playlists, emptyText, options) {
+  target.replaceChildren();
+  if (!playlists.length) {
+    target.append(createElement("p", "empty-feed", emptyText));
     return;
   }
-
   const fragment = document.createDocumentFragment();
-  state.memberships.forEach((membership) => {
-    const item = createElement("button", "playlist-card");
-    item.type = "button";
-    item.append(
-      (() => {
-        const copy = createElement("span", "playlist-card-copy");
-        copy.append(
-          createElement("strong", "", cleanText(membership.playlistName, 60) || "Untitled playlist"),
-          createElement("span", "", `code ${cleanText(membership.inviteCode, 4) || "—"}`)
-        );
-        return copy;
-      })()
-    );
-    item.addEventListener("click", () => enterPlaylist(membership));
-    fragment.append(item);
-  });
-  playlistList.append(fragment);
+  playlists.forEach((playlist) => fragment.append(renderPlaylistCard(playlist, options)));
+  target.append(fragment);
+}
+
+function renderHome() {
+  homeStatus.textContent = "";
+  updateAccountLabels();
+  renderPlaylistGroup(yourPlaylistList, state.memberships, "Nothing here yet. Make one or join one.", {});
+  renderPlaylistGroup(communityPlaylistList, state.communityPlaylists, "No public playlists yet.", { community: true });
 }
 
 function startMembershipListener() {
@@ -1269,7 +1407,27 @@ function startMembershipListener() {
   });
 }
 
+function startCommunityListener() {
+  if (!state.user) return;
+  clearCommunitySubscription();
+  const communityQuery = query(
+    collection(db, "sharedPlaylists"),
+    where("visibility", "==", "public")
+  );
+  state.communityUnsubscribe = onSnapshot(communityQuery, (snapshot) => {
+    state.communityPlaylists = snapshot.docs.map((document) => {
+      const membership = membershipForPlaylist(document.id);
+      return playlistDescriptor(document.id, document.data(), membership);
+    }).sort((left, right) => (timestampValue(right.createdAt)?.getTime() || 0) - (timestampValue(left.createdAt)?.getTime() || 0));
+    renderHome();
+  }, (error) => {
+    console.error(error);
+    homeStatus.textContent = "Couldn’t load community playlists.";
+  });
+}
+
 function memberNames() {
+  if (!isActivePlaylistMember() && !isPublicPlaylist(state.activePlaylist)) return [];
   const names = state.activeMembers
     .map((member) => {
       if (member.userId === state.user?.uid) {
@@ -1279,12 +1437,18 @@ function memberNames() {
     })
     .filter(Boolean);
   if (names.length) return names;
+  if (!isActivePlaylistMember()) return [];
   const fallback = cleanText(state.profile?.displayName, 40);
   return fallback ? [fallback] : [];
 }
 
 function renderPlaylistDetails() {
+  if (!state.activePlaylist) return;
   const names = memberNames();
+  const isMember = isActivePlaylistMember();
+  const isPublic = isPublicPlaylist(state.activePlaylist);
+  const isOwner = isActivePlaylistOwner();
+  const canManage = isOwner || (!isPublic && isMember);
   playlistMembersSummary.replaceChildren();
   if (names.length) {
     playlistMembersSummary.append(document.createTextNode(names.slice(0, 2).join(", ")));
@@ -1299,12 +1463,18 @@ function renderPlaylistDetails() {
       });
       playlistMembersSummary.append(overflow);
     }
+  } else if (isPublic) {
+    playlistMembersSummary.textContent = `Created by ${ownerNameForPlaylist(state.activePlaylist)}`;
   }
 
   const code = cleanText(state.activePlaylist?.inviteCode, 4);
-  invitePeople.disabled = !code;
-  invitePeople.setAttribute("aria-label", code ? "Add people to this playlist" : "No invite code available");
+  invitePeople.hidden = !isMember;
+  invitePeople.disabled = !isMember || !code;
+  invitePeople.setAttribute("aria-label", isMember && code ? "Add people to this playlist" : "No invite code available");
   inviteCode.textContent = code || "—";
+  openPlaylistSettings.hidden = !canManage;
+  joinToShare.hidden = !(isPublic && !isMember);
+  composer.hidden = isPublic && !isMember;
   if (!playlistSettingsDialog.open) {
     renamePlaylistName.value = cleanText(state.activePlaylist?.playlistName, 60);
   }
@@ -1322,20 +1492,29 @@ function subscribeToActivePlaylist() {
       return;
     }
     const playlist = snapshot.data();
-    state.activePlaylist = {
-      ...state.activePlaylist,
-      playlistName: cleanText(playlist.name, 60) || state.activePlaylist.playlistName,
-      inviteCode: cleanText(playlist.joinCode, 4) || state.activePlaylist.inviteCode,
-      ownerUid: cleanText(playlist.ownerUid, 128),
-    };
+    const membership = membershipForPlaylist(playlistId);
+    const details = playlistDescriptor(playlistId, playlist, membership);
+    state.activePlaylist = { ...state.activePlaylist, ...details, role: membership?.role || state.activePlaylist.role || "viewer" };
+    if (membership) {
+      state.memberships = state.memberships.map((item) => item.id === playlistId ? { ...item, ...details, role: item.role } : item);
+    }
+    state.communityPlaylists = state.communityPlaylists.map((item) => item.id === playlistId ? { ...item, ...details } : item);
     setMasthead(state.activePlaylist.playlistName || "Shared playlist");
     renderPlaylistDetails();
+    renderHome();
   }, (error) => console.error(error));
 }
 
 function subscribeToActiveMembers() {
   if (state.memberUnsubscribe) state.memberUnsubscribe();
   if (!state.activePlaylist) return;
+  // Public playlists intentionally show their participant list to visitors as
+  // well as members. Private rosters remain available only after joining.
+  if (!isActivePlaylistMember() && !isPublicPlaylist(state.activePlaylist)) {
+    state.activeMembers = [];
+    renderPlaylistDetails();
+    return;
+  }
   const playlistId = state.activePlaylist.id;
   state.memberUnsubscribe = onSnapshot(collection(db, "sharedPlaylists", playlistId, "members"), (snapshot) => {
     if (!state.activePlaylist || state.activePlaylist.id !== playlistId) return;
@@ -1367,20 +1546,34 @@ function subscribeToPlaylistShares() {
   });
 }
 
-function enterPlaylist(membership) {
-  if (!state.user || !membership?.id) return;
+function enterPlaylist(playlist, { updateRoute = true } = {}) {
+  if (!state.user || !playlist?.id) return;
   clearPlaylistSubscriptions();
   clearPlaylistDraft();
-  state.activePlaylist = membership;
-  setMasthead(cleanText(membership.playlistName, 60) || "Shared playlist");
+  const membership = membershipForPlaylist(playlist.id);
+  state.activePlaylist = {
+    ...playlist,
+    ...membership,
+    id: playlist.id,
+    playlistName: cleanText(playlist.playlistName || membership?.playlistName, 60) || "Shared playlist",
+    ownerUid: cleanText(playlist.ownerUid || membership?.ownerUid, 128),
+    ownerName: cleanText(playlist.ownerName || membership?.ownerName, 40) || ownerNameForPlaylist(playlist, membership),
+    inviteCode: cleanText(playlist.inviteCode || membership?.inviteCode, 4),
+    visibility: playlistVisibility(playlist.visibility || membership?.visibility),
+    createdAt: playlist.createdAt || membership?.createdAt || null,
+    role: membership?.role || playlist.role || "viewer",
+  };
+  setMasthead(state.activePlaylist.playlistName || "Shared playlist");
   showView("playlist");
   renderPlaylistDetails();
   subscribeToActivePlaylist();
   subscribeToActiveMembers();
   subscribeToPlaylistShares();
+  if (updateRoute && state.activePlaylist.inviteCode) writePlaylistRoute(state.activePlaylist.inviteCode);
 }
 
-function backToHome() {
+function backToHome({ updateRoute = true } = {}) {
+  state.routeRequest += 1;
   clearFeedSubscription();
   clearPlaylistSubscriptions();
   clearPlaylistDraft();
@@ -1389,6 +1582,83 @@ function backToHome() {
   setMasthead("Your shared playlists");
   showView("home");
   renderHome();
+  if (updateRoute) clearPlaylistRoute();
+}
+
+function playlistRouteCode() {
+  const code = cleanText(new URLSearchParams(window.location.search).get("playlist"), 4);
+  return /^\d{4}$/.test(code) ? code : "";
+}
+
+function writePlaylistRoute(code, { replace = false } = {}) {
+  if (!/^\d{4}$/.test(cleanText(code, 4))) return;
+  const url = new URL(window.location.href);
+  if (playlistRouteCode() === code) return;
+  url.searchParams.set("playlist", code);
+  window.history[replace ? "replaceState" : "pushState"]({}, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+function clearPlaylistRoute({ replace = false } = {}) {
+  if (!playlistRouteCode()) return;
+  const url = new URL(window.location.href);
+  url.searchParams.delete("playlist");
+  window.history[replace ? "replaceState" : "pushState"]({}, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+function showJoinForRoute(code) {
+  if (state.activePlaylist) backToHome({ updateRoute: false });
+  else {
+    setMasthead("Your shared playlists");
+    showView("home");
+    renderHome();
+  }
+  createPlaylistForm.hidden = true;
+  joinPlaylistForm.hidden = false;
+  joinCodeInput.value = code;
+  joinPlaylistStatus.textContent = "Join this playlist to open it.";
+}
+
+async function openPlaylistFromRoute() {
+  const code = playlistRouteCode();
+  if (!code || !state.user || !state.profile) return;
+  if (state.activePlaylist?.inviteCode === code) return;
+  const request = ++state.routeRequest;
+  try {
+    const codeSnapshot = await getDoc(doc(db, "playlistCodes", code));
+    if (request !== state.routeRequest) return;
+    if (!codeSnapshot.exists()) {
+      toast("That playlist no longer exists.", "error");
+      clearPlaylistRoute({ replace: true });
+      if (state.activePlaylist) backToHome({ updateRoute: false });
+      return;
+    }
+    const invite = codeSnapshot.data();
+    const playlistId = cleanText(invite.playlistId, 128);
+    const playlistName = cleanText(invite.playlistName, 60);
+    if (!playlistId || !playlistName) throw new Error("That playlist link isn’t valid.");
+
+    const membershipSnapshot = await getDoc(doc(db, "sharedPlaylists", playlistId, "members", state.user.uid));
+    if (request !== state.routeRequest) return;
+    if (membershipSnapshot.exists()) {
+      enterPlaylist({ id: playlistId, ...membershipSnapshot.data() }, { updateRoute: false });
+      return;
+    }
+
+    try {
+      const playlistSnapshot = await getDoc(doc(db, "sharedPlaylists", playlistId));
+      if (request !== state.routeRequest) return;
+      if (playlistSnapshot.exists() && isPublicPlaylist(playlistSnapshot.data())) {
+        enterPlaylist(playlistDescriptor(playlistId, playlistSnapshot.data()), { updateRoute: false });
+        return;
+      }
+    } catch (error) {
+      if (error?.code !== "permission-denied") throw error;
+    }
+    showJoinForRoute(code);
+  } catch (error) {
+    console.error(error);
+    toast("Couldn’t open that playlist. Try again.", "error");
+  }
 }
 
 function randomJoinCode() {
@@ -1404,8 +1674,9 @@ function codeTakenError() {
   return error;
 }
 
-async function createSharedPlaylist(name) {
+async function createSharedPlaylist(name, visibility = "private") {
   if (!state.user || !state.profile) throw new Error("Sign in first.");
+  const safeVisibility = playlistVisibility(visibility);
   for (let attempt = 0; attempt < 30; attempt += 1) {
     const code = randomJoinCode();
     const playlistRef = doc(collection(db, "sharedPlaylists"));
@@ -1418,7 +1689,9 @@ async function createSharedPlaylist(name) {
         transaction.set(playlistRef, {
           name,
           ownerUid: state.user.uid,
+          ownerName: state.profile.displayName,
           joinCode: code,
+          visibility: safeVisibility,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
@@ -1441,8 +1714,11 @@ async function createSharedPlaylist(name) {
         userId: state.user.uid,
         displayName: state.profile.displayName,
         playlistName: name,
+        ownerUid: state.user.uid,
+        ownerName: state.profile.displayName,
         role: "owner",
         inviteCode: code,
+        visibility: safeVisibility,
       };
     } catch (error) {
       if (error?.code === "resonance/code-taken") continue;
@@ -1452,20 +1728,17 @@ async function createSharedPlaylist(name) {
   throw new Error("Couldn’t find a free code. Try again.");
 }
 
-async function joinSharedPlaylist(code) {
+async function joinPlaylistWithDetails(playlist) {
   if (!state.user || !state.profile) throw new Error("Sign in first.");
-  const codeSnapshot = await getDoc(doc(db, "playlistCodes", code));
-  if (!codeSnapshot.exists()) throw new Error("No playlist has that code.");
-
-  const invite = codeSnapshot.data();
-  const playlistId = cleanText(invite.playlistId, 128);
-  const playlistName = cleanText(invite.playlistName, 60);
-  if (!playlistId || !playlistName) throw new Error("That code doesn’t look right.");
+  const playlistId = cleanText(playlist?.id, 128);
+  const playlistName = cleanText(playlist?.playlistName, 60);
+  const inviteCode = cleanText(playlist?.inviteCode, 4);
+  if (!playlistId || !playlistName || !/^\d{4}$/.test(inviteCode)) throw new Error("That playlist can’t be joined right now.");
 
   const membershipRef = doc(db, "sharedPlaylists", playlistId, "members", state.user.uid);
   const existingMembership = await getDoc(membershipRef);
   if (existingMembership.exists()) {
-    return { id: playlistId, ...existingMembership.data() };
+    return { ...playlist, id: playlistId, ...existingMembership.data() };
   }
 
   await setDoc(membershipRef, {
@@ -1473,17 +1746,50 @@ async function joinSharedPlaylist(code) {
     displayName: state.profile.displayName,
     playlistName,
     role: "member",
-    inviteCode: code,
+    inviteCode,
     joinedAt: serverTimestamp(),
   });
   return {
+    ...playlist,
     id: playlistId,
     userId: state.user.uid,
     displayName: state.profile.displayName,
     playlistName,
     role: "member",
-    inviteCode: code,
+    inviteCode,
   };
+}
+
+async function joinSharedPlaylist(code) {
+  if (!state.user || !state.profile) throw new Error("Sign in first.");
+  const codeSnapshot = await getDoc(doc(db, "playlistCodes", code));
+  if (!codeSnapshot.exists()) throw new Error("No playlist has that code.");
+  const invite = codeSnapshot.data();
+  const playlistId = cleanText(invite.playlistId, 128);
+  const playlistName = cleanText(invite.playlistName, 60);
+  if (!playlistId || !playlistName) throw new Error("That code doesn’t look right.");
+  return joinPlaylistWithDetails({ id: playlistId, playlistName, inviteCode: code });
+}
+
+async function joinActivePublicPlaylist() {
+  if (!state.activePlaylist || !isPublicPlaylist(state.activePlaylist)) return;
+  if (isActivePlaylistMember()) return;
+  joinPublicPlaylistButton.disabled = true;
+  joinPublicPlaylistStatus.textContent = "Joining…";
+  try {
+    const membership = await joinPlaylistWithDetails(state.activePlaylist);
+    upsertMembership(membership);
+    state.activePlaylist = { ...state.activePlaylist, ...membership, role: membership.role || "member" };
+    joinPublicPlaylistStatus.textContent = "";
+    subscribeToActiveMembers();
+    renderPlaylistDetails();
+    toast("Joined.");
+  } catch (error) {
+    console.error(error);
+    joinPublicPlaylistStatus.textContent = readableError(error, error?.message || "Couldn’t join that playlist.");
+  } finally {
+    joinPublicPlaylistButton.disabled = false;
+  }
 }
 
 function setInviteDialogOpen(open) {
@@ -1498,6 +1804,7 @@ function setInviteDialogOpen(open) {
 function setPlaylistSettingsOpen(open) {
   renamePlaylistStatus.textContent = "";
   if (open) {
+    if (!canManageActivePlaylist()) return;
     renamePlaylistName.value = cleanText(state.activePlaylist?.playlistName, 60);
     if (!playlistSettingsDialog.open) playlistSettingsDialog.showModal();
     window.setTimeout(() => {
@@ -1544,6 +1851,7 @@ async function updateCurrentProfileName(name) {
 
 async function renameActivePlaylist(name) {
   if (!state.activePlaylist) throw new Error("Choose a playlist first.");
+  if (!canManageActivePlaylist()) throw new Error("Only the creator can edit this public playlist.");
   const playlistName = cleanText(name, 60);
   if (!playlistName) throw new Error("Give it a name first.");
 
@@ -1571,6 +1879,10 @@ async function renameActivePlaylist(name) {
     ...membership,
     playlistName,
   } : membership);
+  state.communityPlaylists = state.communityPlaylists.map((playlist) => playlist.id === state.activePlaylist.id ? {
+    ...playlist,
+    playlistName,
+  } : playlist);
   setMasthead(playlistName);
   renderPlaylistDetails();
   renderHome();
@@ -1578,6 +1890,10 @@ async function renameActivePlaylist(name) {
 
 async function deleteActivePlaylist() {
   if (!state.activePlaylist) return;
+  if (!canManageActivePlaylist()) {
+    toast("Only the creator can delete this public playlist.", "error");
+    return;
+  }
   if (!window.confirm("Are you sure you want to delete this playlist?")) return;
 
   const playlist = state.activePlaylist;
@@ -1625,19 +1941,25 @@ async function saveProfile(user, name) {
   state.profile = { displayName };
   updateAccountLabels();
   startMembershipListener();
+  startCommunityListener();
   setMasthead("Your shared playlists");
   showView("home");
   renderHome();
+  void openPlaylistFromRoute();
 }
 
 async function activateUser(user) {
   clearFeedSubscription();
   clearPlaylistSubscriptions();
   clearMembershipSubscription();
+  clearCommunitySubscription();
   if (accountDialog.open) accountDialog.close();
   state.activePlaylist = null;
   state.shares = [];
   state.memberships = [];
+  playlistSongTotals.clear();
+  playlistSongTotalRequests.clear();
+  playlistOwnerNameRequests.clear();
   state.user = user || null;
   state.profile = null;
   updateAccountLabels();
@@ -1660,9 +1982,11 @@ async function activateUser(user) {
     state.profile = profileSnapshot.data();
     updateAccountLabels();
     startMembershipListener();
+    startCommunityListener();
     setMasthead("Your shared playlists");
     showView("home");
     renderHome();
+    void openPlaylistFromRoute();
   } catch (error) {
     console.error(error);
     showAuth("profile");
@@ -1677,6 +2001,7 @@ authForm.addEventListener("submit", async (event) => {
   authSubmit.disabled = true;
   authStatus.textContent = "";
   try {
+    await authPersistenceReady;
     if (state.authMode === "profile") {
       if (!state.user) throw new Error("Sign in first.");
       await saveProfile(state.user, authNameInput.value);
@@ -1700,6 +2025,7 @@ googleSignInButton.addEventListener("click", async () => {
   googleSignInButton.disabled = true;
   authStatus.textContent = "Taking you to Google…";
   try {
+    await authPersistenceReady;
     await signInWithRedirect(auth, googleProvider);
   } catch (error) {
     console.error(error);
@@ -1767,7 +2093,7 @@ createPlaylistForm.addEventListener("submit", async (event) => {
   createPlaylistButton.disabled = true;
   createPlaylistStatus.textContent = "Making it…";
   try {
-    const membership = await createSharedPlaylist(name);
+    const membership = await createSharedPlaylist(name, selectedPlaylistVisibility());
     createPlaylistForm.reset();
     createPlaylistForm.hidden = true;
     upsertMembership(membership);
@@ -1830,16 +2156,32 @@ deletePlaylistButton.addEventListener("click", () => {
   void deleteActivePlaylist();
 });
 
-closeMemberDialog.addEventListener("click", () => memberDialog.close());
-
-void getRedirectResult(auth).catch((error) => {
-  console.error(error);
-  showAuth("signUp");
-  authStatus.textContent = readableError(error);
+joinPublicPlaylistButton.addEventListener("click", () => {
+  void joinActivePublicPlaylist();
 });
 
-onAuthStateChanged(auth, (user) => {
-  void activateUser(user);
+closeMemberDialog.addEventListener("click", () => memberDialog.close());
+
+window.addEventListener("popstate", () => {
+  if (!state.user || !state.profile) return;
+  if (playlistRouteCode()) {
+    void openPlaylistFromRoute();
+  } else {
+    state.routeRequest += 1;
+    if (state.activePlaylist) backToHome({ updateRoute: false });
+  }
 });
 
 showAuth("signUp");
+
+void authPersistenceReady.finally(() => {
+  void getRedirectResult(auth).catch((error) => {
+    console.error(error);
+    showAuth("signUp");
+    authStatus.textContent = readableError(error);
+  });
+
+  onAuthStateChanged(auth, (user) => {
+    void activateUser(user);
+  });
+});

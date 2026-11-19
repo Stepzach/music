@@ -1,46 +1,52 @@
-// Resonance shared-playlist data model
+// ===============================================================
+// Resonance Firestore data model
+// ===============================================================
 //
 // profiles/{uid}
-//   uid, displayName, createdAt, updatedAt
-//   Private to the account holder. Email addresses are never stored here.
+//   uid (immutable), displayName, createdAt (immutable), updatedAt
+//   This is private account data. Email addresses are never stored here.
 //
 // playlistCodes/{fourDigitCode}
-//   playlistId, playlistName, createdAt
-//   A convenience invitation lookup. Codes are intentionally get-only; they
-//   are not a secret or a substitute for a longer private invite.
+//   playlistId, playlistName, createdAt (immutable)
+//   A direct invitation lookup. Four-digit codes are convenient rather than
+//   secret; all reads require an authenticated user and the document cannot be
+//   listed.
 //
 // sharedPlaylists/{playlistId}
-//   name, ownerUid, joinCode, createdAt, updatedAt
+//   name, ownerUid (immutable), ownerName (immutable), visibility (immutable:
+//   'private' or 'public'), joinCode (immutable), createdAt (immutable),
+//   updatedAt
+//   ownerName is a public display name only. Public playlists are readable by
+//   signed-in users; private playlists are readable by their members.
+//
 // sharedPlaylists/{playlistId}/members/{uid}
-//   userId, displayName, playlistName, role, inviteCode, joinedAt
+//   userId (immutable), displayName (immutable), playlistName, role
+//   (immutable: owner/member), inviteCode (immutable), joinedAt (immutable)
+//   The profile display name is copied only after it is checked against the
+//   caller's private profile. Public playlist membership names are readable
+//   alongside the public playlist; no email or other account data is exposed.
+//
 // sharedPlaylists/{playlistId}/shares/{shareId}
 //   tracks, senderName, note, senderUid, createdAt
+//   Members create shares. Public playlists make their shares readable to
+//   signed-in visitors; private playlists keep them member-only.
 //
-// The playlist document is the source of truth for its name. Its small name
-// copies on invitation and membership documents are kept in sync in the same
-// atomic write so joining and the playlist list stay consistent.
+// Earlier playlists without ownerName/visibility remain valid private legacy
+// playlists, so existing shared lists continue to work. New playlists must use
+// the current schema above.
 
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Authentication and ownership helpers
+    // =============================================================
+    // Helpers
+    // =============================================================
     function isAuthenticated() {
       return request.auth != null;
     }
 
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
-    }
-
-    // Profile document IDs are immutable and must always remain the caller's
-    // Firebase UID. These explicit update helpers prevent identifier changes.
-    function uidUnchanged() {
-      return request.resource.data.uid == resource.data.uid;
-    }
-
-    function uidNotModified() {
-      return request.resource.data.diff(resource.data).affectedKeys()
-        .hasOnly(['displayName', 'updatedAt']);
     }
 
     function hasExactKeys(data, fields) {
@@ -68,6 +74,18 @@ service cloud.firestore {
       return code is string && code.matches('^[0-9]{4}$');
     }
 
+    function isCurrentPlaylist(data) {
+      return data is map && data.keys().hasAll(['visibility']) &&
+        data.visibility in ['private', 'public'];
+    }
+
+    function isPublicPlaylist(playlistId) {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/sharedPlaylists/$(playlistId)) &&
+        isCurrentPlaylist(get(/databases/$(database)/documents/sharedPlaylists/$(playlistId)).data) &&
+        get(/databases/$(database)/documents/sharedPlaylists/$(playlistId)).data.visibility == 'public';
+    }
+
     function isPlaylistMember(playlistId) {
       return isAuthenticated() &&
         exists(/databases/$(database)/documents/sharedPlaylists/$(playlistId)) &&
@@ -80,13 +98,26 @@ service cloud.firestore {
         get(/databases/$(database)/documents/sharedPlaylists/$(playlistId)).data.ownerUid == request.auth.uid;
     }
 
+    // Private playlists remain collaborative. Public playlists may only be
+    // renamed or deleted by their creator.
+    function canManagePlaylist(playlistId) {
+      return isPlaylistMember(playlistId) &&
+        (!isPublicPlaylist(playlistId) || isPlaylistOwner(playlistId));
+    }
+
+    function canViewPlaylist(playlistId) {
+      return isPlaylistMember(playlistId) || isPublicPlaylist(playlistId);
+    }
+
     function profileNameMatches(name) {
       return isAuthenticated() &&
         exists(/databases/$(database)/documents/profiles/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.displayName == name;
     }
 
-    // Strict document validators
+    // =============================================================
+    // Strict schema validators
+    // =============================================================
     function isValidProfile(data) {
       return data is map &&
         hasExactKeys(data, ['uid', 'displayName', 'createdAt', 'updatedAt']) &&
@@ -95,7 +126,23 @@ service cloud.firestore {
         data.createdAt is timestamp && data.updatedAt is timestamp;
     }
 
+    // Current playlist schema used by all newly created playlists.
     function isValidPlaylist(data) {
+      return data is map &&
+        hasExactKeys(data, [
+          'name', 'ownerUid', 'ownerName', 'visibility', 'joinCode',
+          'createdAt', 'updatedAt'
+        ]) &&
+        validString(data.name, 1, 60) &&
+        validString(data.ownerUid, 1, 128) &&
+        validString(data.ownerName, 1, 40) &&
+        data.visibility in ['private', 'public'] &&
+        validJoinCode(data.joinCode) &&
+        data.createdAt is timestamp && data.updatedAt is timestamp;
+    }
+
+    // Old playlists remain private unless they are deliberately recreated.
+    function isValidLegacyPlaylist(data) {
       return data is map &&
         hasExactKeys(data, ['name', 'ownerUid', 'joinCode', 'createdAt', 'updatedAt']) &&
         validString(data.name, 1, 60) &&
@@ -109,13 +156,32 @@ service cloud.firestore {
         timestampIsNow(data.createdAt) && timestampIsNow(data.updatedAt);
     }
 
-    function isValidPlaylistRename(data) {
-      return isValidPlaylist(data) &&
+    function isValidCurrentPlaylistRename(data) {
+      return isValidPlaylist(data) && isValidPlaylist(resource.data) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'updatedAt']) &&
+        data.ownerUid == resource.data.ownerUid &&
+        data.ownerName == resource.data.ownerName &&
+        data.visibility == resource.data.visibility &&
+        data.joinCode == resource.data.joinCode &&
+        data.createdAt == resource.data.createdAt &&
+        timestampIsNow(data.updatedAt);
+    }
+
+    function isValidLegacyPlaylistRename(data) {
+      return isValidLegacyPlaylist(data) && isValidLegacyPlaylist(resource.data) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'updatedAt']) &&
         data.ownerUid == resource.data.ownerUid &&
         data.joinCode == resource.data.joinCode &&
         data.createdAt == resource.data.createdAt &&
         timestampIsNow(data.updatedAt);
+    }
+
+    function isValidPlaylistRename(data) {
+      return isValidCurrentPlaylistRename(data) || isValidLegacyPlaylistRename(data);
+    }
+
+    function isValidStoredPlaylist(data) {
+      return isValidPlaylist(data) || isValidLegacyPlaylist(data);
     }
 
     function isValidPlaylistCode(data) {
@@ -205,7 +271,9 @@ service cloud.firestore {
         timestampIsNow(data.createdAt);
     }
 
-    // Private display-name profiles
+    // =============================================================
+    // Private profile documents
+    // =============================================================
     match /profiles/{userId} {
       allow get: if isOwner(userId);
       allow list: if false;
@@ -216,15 +284,19 @@ service cloud.firestore {
         timestampIsNow(request.resource.data.updatedAt);
       allow update: if isOwner(userId) &&
         isValidProfile(request.resource.data) &&
-        uidUnchanged() && uidNotModified() &&
+        request.resource.data.uid == resource.data.uid &&
         request.resource.data.uid == userId &&
         request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'updatedAt']) &&
         timestampIsNow(request.resource.data.updatedAt);
       allow delete: if false;
     }
 
-    // A code can be checked only by its exact four-digit document ID.
+    // =============================================================
+    // Invitation codes
+    // =============================================================
     match /playlistCodes/{code} {
+      // Direct get only: four digits are a convenience code, not a public list.
       allow get: if isAuthenticated();
       allow list: if false;
       allow create: if isAuthenticated() &&
@@ -238,40 +310,48 @@ service cloud.firestore {
         validJoinCode(code) &&
         isValidPlaylistCode(resource.data) &&
         isValidPlaylistCodeRename(request.resource.data) &&
-        isPlaylistMember(resource.data.playlistId) &&
+        canManagePlaylist(resource.data.playlistId) &&
         existsAfter(/databases/$(database)/documents/sharedPlaylists/$(resource.data.playlistId)) &&
         getAfter(/databases/$(database)/documents/sharedPlaylists/$(resource.data.playlistId)).data.name == request.resource.data.playlistName &&
         getAfter(/databases/$(database)/documents/sharedPlaylists/$(resource.data.playlistId)).data.joinCode == code;
       allow delete: if isAuthenticated() &&
         isValidPlaylistCode(resource.data) &&
-        isPlaylistMember(resource.data.playlistId) &&
+        canManagePlaylist(resource.data.playlistId) &&
         !existsAfter(/databases/$(database)/documents/sharedPlaylists/$(resource.data.playlistId));
     }
 
+    // =============================================================
+    // Playlists, membership, and shared songs
+    // =============================================================
     match /sharedPlaylists/{playlistId} {
-      allow get: if isPlaylistMember(playlistId);
-      allow list: if false;
+      allow get: if isAuthenticated() &&
+        (isPlaylistMember(playlistId) ||
+          (isCurrentPlaylist(resource.data) && resource.data.visibility == 'public'));
+      // Public-list queries must include visibility == 'public'. Private
+      // playlists cannot satisfy this rule and therefore cannot leak in a list.
+      allow list: if isAuthenticated() &&
+        isCurrentPlaylist(resource.data) && resource.data.visibility == 'public';
       allow create: if isAuthenticated() &&
         isValidPlaylistCreate(request.resource.data) &&
         request.resource.data.ownerUid == request.auth.uid &&
+        profileNameMatches(request.resource.data.ownerName) &&
         existsAfter(/databases/$(database)/documents/playlistCodes/$(request.resource.data.joinCode)) &&
         existsAfter(/databases/$(database)/documents/sharedPlaylists/$(playlistId)/members/$(request.auth.uid));
-      allow update: if isPlaylistMember(playlistId) &&
+      allow update: if canManagePlaylist(playlistId) &&
         isValidPlaylistRename(request.resource.data) &&
         existsAfter(/databases/$(database)/documents/playlistCodes/$(resource.data.joinCode)) &&
         getAfter(/databases/$(database)/documents/playlistCodes/$(resource.data.joinCode)).data.playlistId == playlistId &&
         getAfter(/databases/$(database)/documents/playlistCodes/$(resource.data.joinCode)).data.playlistName == request.resource.data.name;
-      allow delete: if isPlaylistMember(playlistId) &&
-        isValidPlaylist(resource.data) &&
+      allow delete: if canManagePlaylist(playlistId) &&
+        isValidStoredPlaylist(resource.data) &&
         !existsAfter(/databases/$(database)/documents/playlistCodes/$(resource.data.joinCode));
 
       match /members/{memberUid} {
-        // Own membership reads make the collection-group home query work;
-        // existing members may also inspect the members in their playlist.
+        // Public rosters contain only chosen display names. Private rosters are
+        // visible only to their members; users can always read their own row.
         allow get: if isAuthenticated() &&
-          (memberUid == request.auth.uid || isPlaylistMember(playlistId));
-        allow list: if isAuthenticated() &&
-          (resource.data.userId == request.auth.uid || isPlaylistMember(playlistId));
+          (memberUid == request.auth.uid || canViewPlaylist(playlistId));
+        allow list: if canViewPlaylist(playlistId);
         allow create: if isAuthenticated() &&
           memberUid == request.auth.uid &&
           isValidMemberCreate(request.resource.data) &&
@@ -289,22 +369,32 @@ service cloud.firestore {
               request.resource.data.role == 'member' &&
               exists(/databases/$(database)/documents/sharedPlaylists/$(playlistId)) &&
               get(/databases/$(database)/documents/sharedPlaylists/$(playlistId)).data.name == request.resource.data.playlistName &&
-              exists(/databases/$(database)/documents/playlistCodes/$(request.resource.data.inviteCode)) &&
-              get(/databases/$(database)/documents/playlistCodes/$(request.resource.data.inviteCode)).data.playlistId == playlistId &&
-              get(/databases/$(database)/documents/playlistCodes/$(request.resource.data.inviteCode)).data.playlistName == request.resource.data.playlistName
+              get(/databases/$(database)/documents/sharedPlaylists/$(playlistId)).data.joinCode == request.resource.data.inviteCode &&
+              (
+                isPublicPlaylist(playlistId) ||
+                (
+                  exists(/databases/$(database)/documents/playlistCodes/$(request.resource.data.inviteCode)) &&
+                  get(/databases/$(database)/documents/playlistCodes/$(request.resource.data.inviteCode)).data.playlistId == playlistId &&
+                  get(/databases/$(database)/documents/playlistCodes/$(request.resource.data.inviteCode)).data.playlistName == request.resource.data.playlistName
+                )
+              )
             )
           );
-        allow update: if isPlaylistMember(playlistId) &&
+        // Rename propagation is bundled with a playlist rename. For public
+        // playlists only the creator may do that; private playlists retain
+        // their existing collaborative edit behavior.
+        allow update: if canManagePlaylist(playlistId) &&
           isValidMemberRename(request.resource.data) &&
           existsAfter(/databases/$(database)/documents/sharedPlaylists/$(playlistId)) &&
           getAfter(/databases/$(database)/documents/sharedPlaylists/$(playlistId)).data.name == request.resource.data.playlistName;
-        // A membership may be removed only as part of a whole-playlist delete.
-        allow delete: if isPlaylistMember(playlistId) &&
+        // Membership documents are removed only in the same batch as deleting
+        // the parent playlist.
+        allow delete: if canManagePlaylist(playlistId) &&
           !existsAfter(/databases/$(database)/documents/sharedPlaylists/$(playlistId));
       }
 
       match /shares/{shareId} {
-        allow read: if isPlaylistMember(playlistId);
+        allow read: if canViewPlaylist(playlistId);
         allow create: if isPlaylistMember(playlistId) &&
           isValidShare(request.resource.data) &&
           request.resource.data.senderUid == request.auth.uid &&
@@ -317,8 +407,8 @@ service cloud.firestore {
       }
     }
 
-    // A collection-group query needs a recursive rule. It is deliberately
-    // limited to the caller's own membership documents.
+    // The home-page collection-group query is restricted to the caller's own
+    // memberships. It cannot reveal private memberships belonging to others.
     match /{path=**}/members/{memberUid} {
       allow list: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }

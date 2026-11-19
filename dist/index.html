@@ -23,7 +23,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300..700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
-    <link rel="stylesheet" href="./styles.css?v=20261119-5" />
+    <link rel="stylesheet" href="./styles.css?v=20261119-6" />
   </head>
   <body>
     <a class="skip-link" href="#app-root">Skip to the app</a>
@@ -74,31 +74,61 @@
       </section>
 
       <section id="home-view" class="app-view home-view" aria-label="Your shared playlists" hidden>
-        <div id="playlist-list" class="playlist-list"></div>
-        <p id="home-status" class="feed-status" aria-live="polite"></p>
+        <div class="home-discovery">
+          <div class="home-actions">
+            <button id="show-create-playlist" class="quiet-button" type="button">New playlist</button>
+            <button id="show-join-playlist" class="quiet-button" type="button">Have a code? Join a playlist</button>
+          </div>
 
-        <div class="home-actions">
-          <button id="show-create-playlist" class="quiet-button" type="button">New playlist</button>
-          <button id="show-join-playlist" class="quiet-button" type="button">Join one</button>
+          <form id="create-playlist-form" class="inline-form create-playlist-form" hidden>
+            <h2 class="inline-form-title">Create new playlist</h2>
+            <label>
+              <span>Name it</span>
+              <input id="new-playlist-name" type="text" maxlength="60" autocomplete="off" placeholder="Friday night" required />
+            </label>
+            <fieldset class="visibility-choice">
+              <legend>Visibility</legend>
+              <label>
+                <input id="playlist-visibility-private" type="radio" name="playlist-visibility" value="private" checked />
+                <span>Private</span>
+              </label>
+              <label>
+                <input id="playlist-visibility-public" type="radio" name="playlist-visibility" value="public" />
+                <span>Public</span>
+              </label>
+            </fieldset>
+            <button id="create-playlist-button" class="share-button" type="submit">Create</button>
+            <p id="create-playlist-status" class="form-status" aria-live="polite"></p>
+          </form>
+
+          <form id="join-playlist-form" class="inline-form join-form" hidden>
+            <h2 class="inline-form-title">Join a playlist</h2>
+            <label>
+              <span>Four-digit code</span>
+              <input id="join-code" class="code-input" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="4" pattern="[0-9]{4}" placeholder="0000" required />
+            </label>
+            <button id="join-playlist-button" class="share-button" type="submit">Join</button>
+            <p id="join-playlist-status" class="form-status" aria-live="polite"></p>
+          </form>
         </div>
 
-        <form id="create-playlist-form" class="inline-form" hidden>
-          <label>
-            <span>Name it</span>
-            <input id="new-playlist-name" type="text" maxlength="60" autocomplete="off" placeholder="Friday night" required />
-          </label>
-          <button id="create-playlist-button" class="share-button" type="submit">Create</button>
-          <p id="create-playlist-status" class="form-status" aria-live="polite"></p>
-        </form>
+        <p id="home-status" class="feed-status" aria-live="polite"></p>
 
-        <form id="join-playlist-form" class="inline-form join-form" hidden>
-          <label>
-            <span>Four-digit code</span>
-            <input id="join-code" class="code-input" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="4" pattern="[0-9]{4}" placeholder="0000" required />
-          </label>
-          <button id="join-playlist-button" class="share-button" type="submit">Join</button>
-          <p id="join-playlist-status" class="form-status" aria-live="polite"></p>
-        </form>
+        <div class="playlist-groups">
+          <section class="playlist-section" aria-labelledby="your-playlists-title">
+            <div class="playlist-section-heading">
+              <h2 id="your-playlists-title">Your playlists</h2>
+            </div>
+            <div id="your-playlist-list" class="playlist-list"></div>
+          </section>
+
+          <section class="playlist-section" aria-labelledby="community-playlists-title">
+            <div class="playlist-section-heading">
+              <h2 id="community-playlists-title">Community playlists</h2>
+            </div>
+            <div id="community-playlist-list" class="playlist-list"></div>
+          </section>
+        </div>
       </section>
 
       <section id="playlist-view" class="app-view playlist-view" aria-label="Shared playlist" hidden>
@@ -113,6 +143,12 @@
           </div>
           <button id="open-playlist-settings" class="text-action compact playlist-settings-trigger" type="button">Edit playlist</button>
         </div>
+
+        <section id="join-to-share" class="join-to-share" aria-live="polite" hidden>
+          <p>Join to share a song</p>
+          <button id="join-public-playlist" class="quiet-button" type="button">Join</button>
+          <p id="join-public-playlist-status" class="form-status" aria-live="polite"></p>
+        </section>
 
         <section class="composer" aria-labelledby="share-title">
           <h3 id="share-title" class="composer-title">Share a song</h3>
@@ -215,6 +251,6 @@
 
     <audio id="preview-audio" preload="none"></audio>
     <div id="toast-root" class="toast-root" aria-live="polite" aria-atomic="true"></div>
-    <script type="module" src="./app.js?v=20261119-5"></script>
+    <script type="module" src="./app.js?v=20261119-6"></script>
   </body>
 </html>
