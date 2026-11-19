@@ -17,16 +17,25 @@
         const theme = hour >= 7 && hour < 19 ? "light" : "dark";
         document.documentElement.dataset.theme = theme;
         document.documentElement.style.colorScheme = theme;
+
+        const playlistCode = new URLSearchParams(window.location.search).get("playlist") || "";
+        if (/^\d{4}$/.test(playlistCode)) {
+          document.documentElement.classList.add("is-route-loading");
+          window.__discoHold = true;
+        }
       })();
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300..700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
-    <link rel="stylesheet" href="./styles.css?v=20261119-6" />
+    <link rel="stylesheet" href="./styles.css?v=20261119-7" />
   </head>
   <body>
     <a class="skip-link" href="#app-root">Skip to the app</a>
+    <div id="route-loader" class="route-loader" aria-hidden="true">
+      <img class="route-loader-ball" src="./assets/disco-ball-icon.png?v=3" alt="" />
+    </div>
     <div class="top-controls">
       <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch to dark mode" aria-pressed="false" title="Switch to dark mode" data-theme="light">
         <span class="theme-toggle-track" aria-hidden="true">
@@ -133,7 +142,10 @@
 
       <section id="playlist-view" class="app-view playlist-view" aria-label="Shared playlist" hidden>
         <div id="playlist-fixed-actions" class="playlist-fixed-actions">
-          <button id="back-to-playlists" class="text-action compact" type="button">All playlists</button>
+          <button id="back-to-playlists" class="playlist-back-button" type="button">
+            <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
+            <span>All playlists</span>
+          </button>
         </div>
 
         <div class="playlist-details" aria-label="Playlist details">
@@ -251,6 +263,6 @@
 
     <audio id="preview-audio" preload="none"></audio>
     <div id="toast-root" class="toast-root" aria-live="polite" aria-atomic="true"></div>
-    <script type="module" src="./app.js?v=20261119-6"></script>
+    <script type="module" src="./app.js?v=20261119-7"></script>
   </body>
 </html>

@@ -400,9 +400,14 @@ service cloud.firestore {
           request.resource.data.senderUid == request.auth.uid &&
           profileNameMatches(request.resource.data.senderName);
         allow update: if false;
-        allow delete: if isPlaylistMember(playlistId) &&
-          (resource.data.senderUid == request.auth.uid ||
-            isPlaylistOwner(playlistId) ||
+        // A playlist creator can moderate any submission. Other members can
+        // remove only their own submission. The final branch is solely for
+        // cleaning up children in the same atomic whole-playlist deletion;
+        // it can never authorize a standalone share deletion.
+        allow delete: if isPlaylistOwner(playlistId) ||
+          (isPlaylistMember(playlistId) &&
+            resource.data.senderUid == request.auth.uid) ||
+          (canManagePlaylist(playlistId) &&
             !existsAfter(/databases/$(database)/documents/sharedPlaylists/$(playlistId)));
       }
     }

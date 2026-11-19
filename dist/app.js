@@ -26,7 +26,7 @@ import {
   updateProfile,
   where,
   writeBatch,
-} from "./firebase.js?v=20261119-6";
+} from "./firebase.js?v=20261119-7";
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -108,7 +108,8 @@ const joinPublicPlaylistStatus = $("#join-public-playlist-status");
 const memberDialog = $("#member-dialog");
 const memberDialogList = $("#member-dialog-list");
 const closeMemberDialog = $("#close-member-dialog");
-const DISCO_ENGINE_URL = "./disco-engine.js";
+const routeLoader = $("#route-loader");
+const DISCO_ENGINE_URL = "./disco-engine.js?v=20261119-7";
 const MAX_TRACKS_PER_SHARE = 12;
 const THEME_OVERRIDE_STORAGE_KEY = "resonance-theme-override";
 const LEGACY_THEME_STORAGE_KEY = "resonance-theme";
@@ -137,6 +138,8 @@ const state = {
   memberUnsubscribe: null,
   playlistUnsubscribe: null,
   routeRequest: 0,
+  initialRouteLoading: document.documentElement.classList.contains("is-route-loading"),
+  initialRouteRevealed: false,
 };
 const deezerPreviewCache = new Map();
 const deezerPreviewRequests = new Map();
@@ -291,6 +294,7 @@ import(DISCO_ENGINE_URL).catch((error) => {
 });
 
 function cueDisco() {
+  if (state.initialRouteLoading && !state.initialRouteRevealed) return;
   window.__discoCue = true;
   window.dispatchEvent(new Event("disco:cue"));
 }
@@ -298,7 +302,7 @@ function cueDisco() {
 // The exact reference engine is loaded in index.html. It uses this event
 // contract to run its own Three.js ball and full-screen moving light canvas.
 window.addEventListener("disco:ready", cueDisco, { once: true });
-window.setTimeout(cueDisco, 2800);
+if (!state.initialRouteLoading) window.setTimeout(cueDisco, 2800);
 
 function setDiscoParty(on) {
   window.clearTimeout(discoPauseTimer);
@@ -818,11 +822,15 @@ function providerUrl(track, provider) {
   return spotifyUrl(track.spotifyUrl) || spotifySearchUrl(track);
 }
 
+function canDeleteShare(share) {
+  if (!state.user || !state.activePlaylist) return false;
+  if (isActivePlaylistOwner()) return true;
+  return isActivePlaylistMember() && cleanText(share.senderUid, 128) === state.user.uid;
+}
+
 async function deleteShare(share, button) {
   if (!state.user || !state.activePlaylist) return;
-  const canDelete = cleanText(share.senderUid, 128) === state.user.uid
-    || state.activePlaylist.role === "owner";
-  if (!canDelete) return;
+  if (!canDeleteShare(share)) return;
   if (!window.confirm("Are you sure you want to delete?")) return;
 
   button.disabled = true;
@@ -976,9 +984,7 @@ function renderShare(share) {
   });
   metaActions.append(links);
 
-  const canDelete = state.user && state.activePlaylist
-    && (cleanText(share.senderUid, 128) === state.user.uid || state.activePlaylist.role === "owner");
-  if (canDelete) {
+  if (canDeleteShare(share)) {
     const remove = createElement("button", "delete-share", "×");
     remove.type = "button";
     remove.setAttribute("aria-label", "Delete this share");
@@ -1082,6 +1088,26 @@ function showView(name) {
   authView.hidden = name !== "auth";
   homeView.hidden = name !== "home";
   playlistView.hidden = name !== "playlist";
+}
+
+function finishInitialRouteLoad() {
+  if (!state.initialRouteLoading || state.initialRouteRevealed) return;
+  state.initialRouteRevealed = true;
+
+  const titleBounds = mastheadTitle.getBoundingClientRect();
+  const loaderWidth = Math.max(100, Math.min(190, window.innerWidth * .15));
+  const loaderRadius = loaderWidth * .38;
+  const targetY = Math.max(loaderRadius + 8, Math.round(titleBounds.top - loaderRadius - 16));
+  document.documentElement.style.setProperty("--route-loader-target-y", `${targetY}px`);
+  document.documentElement.classList.add("is-route-revealing");
+  window.__discoHold = false;
+  window.__discoSkipEntrance = true;
+
+  window.setTimeout(cueDisco, 620);
+  window.setTimeout(() => {
+    document.documentElement.classList.remove("is-route-loading", "is-route-revealing");
+    routeLoader?.remove();
+  }, 980);
 }
 
 function readableError(error, fallback = "Something went wrong. Try again.") {
@@ -1356,9 +1382,9 @@ function renderPlaylistCard(playlist, { community = false } = {}) {
   metadata.append(
     createElement("span", "", `by ${ownerCopy}`),
     createElement("span", "", playlistCardDate(playlist.createdAt)),
-    createElement("span", "", songTotalLabel(playlist.id))
+    createElement("span", "", songTotalLabel(playlist.id)),
+    createElement("span", "playlist-visibility-label", isPublicPlaylist(playlist) ? "Public" : "Private")
   );
-  if (isPublicPlaylist(playlist)) metadata.append(createElement("span", "playlist-public-label", "Public"));
   copy.append(
     createElement("strong", "", cleanText(playlist.playlistName, 60) || "Untitled playlist"),
     metadata
@@ -1630,6 +1656,11 @@ async function openPlaylistFromRoute() {
       toast("That playlist no longer exists.", "error");
       clearPlaylistRoute({ replace: true });
       if (state.activePlaylist) backToHome({ updateRoute: false });
+      else {
+        setMasthead("Your shared playlists");
+        showView("home");
+        renderHome();
+      }
       return;
     }
     const invite = codeSnapshot.data();
@@ -1658,7 +1689,22 @@ async function openPlaylistFromRoute() {
   } catch (error) {
     console.error(error);
     toast("Couldn’t open that playlist. Try again.", "error");
+    if (!state.activePlaylist) {
+      setMasthead("Your shared playlists");
+      showView("home");
+      renderHome();
+    }
   }
+}
+
+async function showResolvedDestination() {
+  if (playlistRouteCode()) {
+    await openPlaylistFromRoute();
+    return;
+  }
+  setMasthead("Your shared playlists");
+  showView("home");
+  renderHome();
 }
 
 function randomJoinCode() {
@@ -1823,10 +1869,6 @@ function setAccountDialogOpen(open) {
     accountNameInput.value = cleanText(state.profile.displayName, 40);
     accountEmail.textContent = cleanText(state.user.email, 160) || "No email saved";
     if (!accountDialog.open) accountDialog.showModal();
-    window.setTimeout(() => {
-      accountNameInput.focus();
-      accountNameInput.select();
-    }, 0);
     return;
   }
   if (accountDialog.open) accountDialog.close();
@@ -1942,10 +1984,8 @@ async function saveProfile(user, name) {
   updateAccountLabels();
   startMembershipListener();
   startCommunityListener();
-  setMasthead("Your shared playlists");
-  showView("home");
-  renderHome();
-  void openPlaylistFromRoute();
+  await showResolvedDestination();
+  finishInitialRouteLoad();
 }
 
 async function activateUser(user) {
@@ -1966,6 +2006,7 @@ async function activateUser(user) {
 
   if (!user) {
     showAuth("signUp");
+    finishInitialRouteLoad();
     return;
   }
   if (user.isAnonymous) {
@@ -1977,20 +2018,20 @@ async function activateUser(user) {
     const profileSnapshot = await getDoc(doc(db, "profiles", user.uid));
     if (!profileSnapshot.exists()) {
       showAuth("profile");
+      finishInitialRouteLoad();
       return;
     }
     state.profile = profileSnapshot.data();
     updateAccountLabels();
     startMembershipListener();
     startCommunityListener();
-    setMasthead("Your shared playlists");
-    showView("home");
-    renderHome();
-    void openPlaylistFromRoute();
+    await showResolvedDestination();
+    finishInitialRouteLoad();
   } catch (error) {
     console.error(error);
     showAuth("profile");
     authStatus.textContent = "Your account couldn’t open. Try again.";
+    finishInitialRouteLoad();
   }
 }
 
@@ -2179,6 +2220,7 @@ void authPersistenceReady.finally(() => {
     console.error(error);
     showAuth("signUp");
     authStatus.textContent = readableError(error);
+    finishInitialRouteLoad();
   });
 
   onAuthStateChanged(auth, (user) => {

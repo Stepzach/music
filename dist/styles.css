@@ -110,6 +110,66 @@ a { color: inherit; }
 
 .skip-link:focus { top: 1rem; }
 
+/* A bookmarked playlist resolves behind this little entrance, so the auth and
+   home views never flash before the requested playlist is ready. */
+.route-loader {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: none;
+  pointer-events: none;
+}
+
+.route-loader::before {
+  position: absolute;
+  inset: 0;
+  background: var(--paper);
+  content: "";
+  transition: opacity .28s ease .25s;
+}
+
+.route-loader-ball {
+  position: fixed;
+  z-index: 1;
+  top: calc(100svh - 75px);
+  left: 50%;
+  width: clamp(100px, 15vw, 190px);
+  height: auto;
+  filter: drop-shadow(0 12px 20px rgba(0, 0, 0, .14));
+  clip-path: circle(38% at 50% 50%);
+  opacity: 1;
+  pointer-events: none;
+  transform: translate(-50%, -50%) rotate(-9deg);
+  transition: top .78s cubic-bezier(.26, .95, .4, 1), transform .78s cubic-bezier(.26, .95, .4, 1), opacity .18s ease .62s;
+}
+
+html.is-route-loading .route-loader { display: block; }
+
+html.is-route-loading .top-controls,
+html.is-route-loading .masthead,
+html.is-route-loading .page-shell {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .3s ease;
+  visibility: hidden;
+}
+
+html.is-route-loading.is-route-revealing .route-loader::before { opacity: 0; }
+
+html.is-route-loading.is-route-revealing .route-loader-ball {
+  top: var(--route-loader-target-y, 100px);
+  opacity: 0;
+  transform: translate(-50%, -50%) rotate(0deg) scale(.88);
+}
+
+html.is-route-loading.is-route-revealing .top-controls,
+html.is-route-loading.is-route-revealing .masthead,
+html.is-route-loading.is-route-revealing .page-shell {
+  opacity: 1;
+  transition-delay: .23s;
+  visibility: visible;
+}
+
 .top-controls {
   position: fixed;
   z-index: 55;
@@ -144,7 +204,7 @@ a { color: inherit; }
   border: 1px solid var(--quiet-control-border);
   border-radius: 50%;
   background: var(--quiet-control);
-  color: var(--ink);
+  color: #151515;
   cursor: pointer;
   font-size: 13px;
   line-height: 1;
@@ -1036,7 +1096,7 @@ html[data-theme="dark"] .play-button { color: #151515; }
   content: "·";
 }
 
-.playlist-card-meta .playlist-public-label {
+.playlist-card-meta .playlist-visibility-label {
   color: var(--ink);
 }
 
@@ -1176,7 +1236,26 @@ html[data-theme="dark"] .play-button { color: #151515; }
   left: 18px;
 }
 
-.playlist-fixed-actions .text-action { color: var(--ink); }
+.playlist-back-button {
+  display: inline-flex;
+  min-height: 31px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid var(--quiet-control-border);
+  border-radius: 7px;
+  background: var(--quiet-control);
+  color: #151515;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1;
+  transition: background .16s ease, border-color .16s ease, transform .16s ease;
+}
+
+.playlist-back-button:hover { border-color: var(--muted); background: var(--quiet-control-hover); }
+.playlist-back-button:active { transform: scale(.96); }
+.playlist-back-button i { font-size: 11px; }
 
 .playlist-details {
   display: flex;

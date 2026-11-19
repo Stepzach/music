@@ -738,13 +738,15 @@ const PALETTE = {
       push(0.18);
       if (!running) { spotsAlpha = 1; renderFrame(); }        // paused from a saved setting: hang still, lit
     };
-    if (motionQuery.matches) { settle(); return; }
+    if (motionQuery.matches || window.__discoSkipEntrance) { settle(); return; }
     setTimeout(settle, 900);                                  // light comes on as the line goes taut
   }
   if (window.__discoCue) dropIn();
   else {
     window.addEventListener('disco:cue', dropIn, { once: true });
-    setTimeout(dropIn, 2500);                                 // pages that never cue still get the ball
+    // A bookmarked playlist owns its entrance: it keeps the ball at the
+    // bottom while auth and playlist data resolve, then cues it into place.
+    if (!window.__discoHold) setTimeout(dropIn, 2500);         // pages that never cue still get the ball
   }
 
   renderFrame();
