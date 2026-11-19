@@ -25,7 +25,7 @@ import {
   updateProfile,
   where,
   writeBatch,
-} from "./firebase.js?v=20261119-4";
+} from "./firebase.js?v=20261119-5";
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -63,10 +63,15 @@ const authStatus = $("#auth-status");
 const authDivider = $("#auth-divider");
 const authSwitch = $("#auth-switch");
 const googleSignInButton = $("#google-sign-in");
-const homeAccountName = $("#home-account-name");
-const homeSignOut = $("#home-sign-out");
-const playlistAccountName = $("#playlist-account-name");
-const playlistSignOut = $("#playlist-sign-out");
+const accountTrigger = $("#account-trigger");
+const accountDialog = $("#account-dialog");
+const closeAccountDialog = $("#close-account-dialog");
+const accountForm = $("#account-form");
+const accountNameInput = $("#account-name");
+const accountEmail = $("#account-email");
+const accountSaveButton = $("#account-save");
+const accountStatus = $("#account-status");
+const accountSignOut = $("#account-sign-out");
 const playlistList = $("#playlist-list");
 const homeStatus = $("#home-status");
 const showCreatePlaylist = $("#show-create-playlist");
@@ -81,12 +86,16 @@ const joinPlaylistButton = $("#join-playlist-button");
 const joinPlaylistStatus = $("#join-playlist-status");
 const backToPlaylists = $("#back-to-playlists");
 const playlistMembersSummary = $("#playlist-members-summary");
-const playlistCode = $("#playlist-code");
-const showRenamePlaylist = $("#show-rename-playlist");
+const invitePeople = $("#invite-people");
+const inviteDialog = $("#invite-dialog");
+const inviteCode = $("#invite-code");
+const closeInviteDialog = $("#close-invite-dialog");
+const openPlaylistSettings = $("#open-playlist-settings");
+const playlistSettingsDialog = $("#playlist-settings-dialog");
+const closePlaylistSettings = $("#close-playlist-settings");
 const renamePlaylistForm = $("#rename-playlist-form");
 const renamePlaylistName = $("#rename-playlist-name");
 const renamePlaylistButton = $("#rename-playlist-button");
-const cancelRenamePlaylist = $("#cancel-rename-playlist");
 const renamePlaylistStatus = $("#rename-playlist-status");
 const deletePlaylistButton = $("#delete-playlist");
 const memberDialog = $("#member-dialog");
@@ -1072,8 +1081,11 @@ function readableError(error, fallback = "Something went wrong. Try again.") {
 
 function updateAccountLabels() {
   const name = cleanText(state.profile?.displayName, 40);
-  homeAccountName.textContent = name;
-  playlistAccountName.textContent = name;
+  const isReady = Boolean(state.user && state.profile);
+  accountTrigger.hidden = !isReady;
+  accountTrigger.setAttribute("aria-label", name ? `Open ${name}'s profile` : "Open profile");
+  accountTrigger.title = name || "Profile";
+  accountEmail.textContent = cleanText(state.user?.email, 160) || "No email saved";
 }
 
 function showAuth(mode = "signUp") {
@@ -1132,9 +1144,10 @@ function clearPlaylistSubscriptions() {
   state.memberUnsubscribe = null;
   state.playlistUnsubscribe = null;
   state.activeMembers = [];
-  renamePlaylistForm.hidden = true;
   renamePlaylistStatus.textContent = "";
   if (memberDialog.open) memberDialog.close();
+  if (inviteDialog.open) inviteDialog.close();
+  if (playlistSettingsDialog.open) playlistSettingsDialog.close();
 }
 
 function clearPlaylistDraft() {
@@ -1258,7 +1271,12 @@ function startMembershipListener() {
 
 function memberNames() {
   const names = state.activeMembers
-    .map((member) => cleanText(member.displayName, 40))
+    .map((member) => {
+      if (member.userId === state.user?.uid) {
+        return cleanText(state.profile?.displayName, 40) || cleanText(member.displayName, 40);
+      }
+      return cleanText(member.displayName, 40);
+    })
     .filter(Boolean);
   if (names.length) return names;
   const fallback = cleanText(state.profile?.displayName, 40);
@@ -1284,8 +1302,10 @@ function renderPlaylistDetails() {
   }
 
   const code = cleanText(state.activePlaylist?.inviteCode, 4);
-  playlistCode.textContent = code ? `Code ${code}` : "";
-  if (renamePlaylistForm.hidden) {
+  invitePeople.disabled = !code;
+  invitePeople.setAttribute("aria-label", code ? "Add people to this playlist" : "No invite code available");
+  inviteCode.textContent = code || "—";
+  if (!playlistSettingsDialog.open) {
     renamePlaylistName.value = cleanText(state.activePlaylist?.playlistName, 60);
   }
 }
@@ -1466,14 +1486,60 @@ async function joinSharedPlaylist(code) {
   };
 }
 
-function setRenamePlaylistOpen(open) {
-  renamePlaylistForm.hidden = !open;
+function setInviteDialogOpen(open) {
+  if (open) {
+    if (!cleanText(state.activePlaylist?.inviteCode, 4)) return;
+    if (!inviteDialog.open) inviteDialog.showModal();
+    return;
+  }
+  if (inviteDialog.open) inviteDialog.close();
+}
+
+function setPlaylistSettingsOpen(open) {
   renamePlaylistStatus.textContent = "";
   if (open) {
     renamePlaylistName.value = cleanText(state.activePlaylist?.playlistName, 60);
-    renamePlaylistName.focus();
-    renamePlaylistName.select();
+    if (!playlistSettingsDialog.open) playlistSettingsDialog.showModal();
+    window.setTimeout(() => {
+      renamePlaylistName.focus();
+      renamePlaylistName.select();
+    }, 0);
+    return;
   }
+  if (playlistSettingsDialog.open) playlistSettingsDialog.close();
+}
+
+function setAccountDialogOpen(open) {
+  accountStatus.textContent = "";
+  if (open) {
+    if (!state.user || !state.profile) return;
+    accountNameInput.value = cleanText(state.profile.displayName, 40);
+    accountEmail.textContent = cleanText(state.user.email, 160) || "No email saved";
+    if (!accountDialog.open) accountDialog.showModal();
+    window.setTimeout(() => {
+      accountNameInput.focus();
+      accountNameInput.select();
+    }, 0);
+    return;
+  }
+  if (accountDialog.open) accountDialog.close();
+}
+
+async function updateCurrentProfileName(name) {
+  if (!state.user || !state.profile) throw new Error("Sign in first.");
+  const displayName = cleanText(name, 40);
+  if (!displayName) throw new Error("Add the name you’d like to use.");
+
+  await setDoc(doc(db, "profiles", state.user.uid), {
+    displayName,
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+  await updateProfile(state.user, { displayName });
+
+  state.profile = { ...state.profile, displayName };
+  updateAccountLabels();
+  renderHome();
+  renderPlaylistDetails();
 }
 
 async function renameActivePlaylist(name) {
@@ -1568,11 +1634,13 @@ async function activateUser(user) {
   clearFeedSubscription();
   clearPlaylistSubscriptions();
   clearMembershipSubscription();
+  if (accountDialog.open) accountDialog.close();
   state.activePlaylist = null;
   state.shares = [];
   state.memberships = [];
   state.user = user || null;
   state.profile = null;
+  updateAccountLabels();
 
   if (!user) {
     showAuth("signUp");
@@ -1642,6 +1710,7 @@ googleSignInButton.addEventListener("click", async () => {
 
 async function handleSignOut() {
   try {
+    setAccountDialogOpen(false);
     await signOut(auth);
   } catch (error) {
     console.error(error);
@@ -1649,8 +1718,25 @@ async function handleSignOut() {
   }
 }
 
-homeSignOut.addEventListener("click", handleSignOut);
-playlistSignOut.addEventListener("click", handleSignOut);
+accountTrigger.addEventListener("click", () => setAccountDialogOpen(true));
+closeAccountDialog.addEventListener("click", () => setAccountDialogOpen(false));
+accountSignOut.addEventListener("click", handleSignOut);
+
+accountForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  accountSaveButton.disabled = true;
+  accountStatus.textContent = "";
+  try {
+    await updateCurrentProfileName(accountNameInput.value);
+    toast("Saved.");
+    setAccountDialogOpen(false);
+  } catch (error) {
+    console.error(error);
+    accountStatus.textContent = readableError(error, error?.message || "Couldn’t save your profile.");
+  } finally {
+    accountSaveButton.disabled = false;
+  }
+});
 
 showCreatePlaylist.addEventListener("click", () => {
   createPlaylistForm.hidden = !createPlaylistForm.hidden;
@@ -1720,8 +1806,10 @@ joinPlaylistForm.addEventListener("submit", async (event) => {
 
 backToPlaylists.addEventListener("click", backToHome);
 
-showRenamePlaylist.addEventListener("click", () => setRenamePlaylistOpen(true));
-cancelRenamePlaylist.addEventListener("click", () => setRenamePlaylistOpen(false));
+invitePeople.addEventListener("click", () => setInviteDialogOpen(true));
+closeInviteDialog.addEventListener("click", () => setInviteDialogOpen(false));
+openPlaylistSettings.addEventListener("click", () => setPlaylistSettingsOpen(true));
+closePlaylistSettings.addEventListener("click", () => setPlaylistSettingsOpen(false));
 
 renamePlaylistForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -1729,7 +1817,7 @@ renamePlaylistForm.addEventListener("submit", async (event) => {
   renamePlaylistStatus.textContent = "";
   try {
     await renameActivePlaylist(renamePlaylistName.value);
-    setRenamePlaylistOpen(false);
+    setPlaylistSettingsOpen(false);
   } catch (error) {
     console.error(error);
     renamePlaylistStatus.textContent = readableError(error, error?.message || "Couldn’t save that name.");

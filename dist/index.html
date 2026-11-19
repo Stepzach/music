@@ -23,16 +23,21 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300..700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
-    <link rel="stylesheet" href="./styles.css?v=20261119-4" />
+    <link rel="stylesheet" href="./styles.css?v=20261119-5" />
   </head>
   <body>
     <a class="skip-link" href="#app-root">Skip to the app</a>
-    <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch to dark mode" aria-pressed="false" title="Switch to dark mode" data-theme="light">
-      <span class="theme-toggle-track" aria-hidden="true">
-        <span class="theme-toggle-option theme-toggle-sun"><i class="fa-solid fa-star"></i></span>
-        <span class="theme-toggle-option theme-toggle-moon"><i class="fa-solid fa-moon"></i></span>
-      </span>
-    </button>
+    <div class="top-controls">
+      <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch to dark mode" aria-pressed="false" title="Switch to dark mode" data-theme="light">
+        <span class="theme-toggle-track" aria-hidden="true">
+          <span class="theme-toggle-option theme-toggle-sun"><i class="fa-solid fa-star"></i></span>
+          <span class="theme-toggle-option theme-toggle-moon"><i class="fa-solid fa-moon"></i></span>
+        </span>
+      </button>
+      <button id="account-trigger" class="profile-trigger" type="button" aria-label="Open profile" aria-haspopup="dialog" aria-controls="account-dialog" hidden>
+        <i class="fa-solid fa-user" aria-hidden="true"></i>
+      </button>
+    </div>
 
     <header class="masthead">
       <h1 id="masthead-title" data-disco-target>resonance</h1>
@@ -69,11 +74,6 @@
       </section>
 
       <section id="home-view" class="app-view home-view" aria-label="Your shared playlists" hidden>
-        <div class="account-control">
-          <span id="home-account-name"></span>
-          <button id="home-sign-out" class="text-action compact" type="button">Sign out</button>
-        </div>
-
         <div id="playlist-list" class="playlist-list"></div>
         <p id="home-status" class="feed-status" aria-live="polite"></p>
 
@@ -104,29 +104,15 @@
       <section id="playlist-view" class="app-view playlist-view" aria-label="Shared playlist" hidden>
         <div id="playlist-fixed-actions" class="playlist-fixed-actions">
           <button id="back-to-playlists" class="text-action compact" type="button">All playlists</button>
-          <span id="playlist-account-name" class="playlist-account-name"></span>
-          <button id="playlist-sign-out" class="text-action compact" type="button">Sign out</button>
         </div>
 
         <div class="playlist-details" aria-label="Playlist details">
-          <div id="playlist-members-summary" class="playlist-members-summary" aria-live="polite"></div>
-          <p id="playlist-code" class="playlist-code"></p>
+          <div class="playlist-members">
+            <div id="playlist-members-summary" class="playlist-members-summary" aria-live="polite"></div>
+            <button id="invite-people" class="invite-people text-action compact" type="button"><span aria-hidden="true">+</span> Add people</button>
+          </div>
+          <button id="open-playlist-settings" class="text-action compact playlist-settings-trigger" type="button">Edit playlist</button>
         </div>
-
-        <div class="playlist-actions">
-          <button id="show-rename-playlist" class="text-action compact" type="button">Edit name</button>
-          <button id="delete-playlist" class="text-action compact playlist-delete-action" type="button">Delete playlist</button>
-        </div>
-
-        <form id="rename-playlist-form" class="rename-playlist-form inline-form" hidden>
-          <label>
-            <span>Playlist name</span>
-            <input id="rename-playlist-name" type="text" maxlength="60" autocomplete="off" required />
-          </label>
-          <button id="rename-playlist-button" class="share-button" type="submit">Save</button>
-          <button id="cancel-rename-playlist" class="text-action compact" type="button">Cancel</button>
-          <p id="rename-playlist-status" class="form-status" aria-live="polite"></p>
-        </form>
 
         <section class="composer" aria-labelledby="share-title">
           <h3 id="share-title" class="composer-title">Share a song</h3>
@@ -175,11 +161,60 @@
             <p id="member-dialog-list" class="member-dialog-list"></p>
           </div>
         </dialog>
+
+        <dialog id="invite-dialog" class="popup-dialog" aria-labelledby="invite-dialog-title">
+          <div class="popup-dialog-card">
+            <div class="popup-dialog-heading">
+              <h2 id="invite-dialog-title">Add people</h2>
+              <button id="close-invite-dialog" class="text-action compact" type="button">Close</button>
+            </div>
+            <p class="invite-label">Playlist code</p>
+            <p id="invite-code" class="invite-code"></p>
+            <p class="invite-copy">From All playlists, tap Join one and enter this code.</p>
+          </div>
+        </dialog>
+
+        <dialog id="playlist-settings-dialog" class="popup-dialog" aria-labelledby="playlist-settings-title">
+          <div class="popup-dialog-card">
+            <div class="popup-dialog-heading">
+              <h2 id="playlist-settings-title">Edit playlist</h2>
+              <button id="close-playlist-settings" class="text-action compact" type="button">Close</button>
+            </div>
+            <form id="rename-playlist-form" class="settings-form">
+              <label>
+                <span>Playlist name</span>
+                <input id="rename-playlist-name" type="text" maxlength="60" autocomplete="off" required />
+              </label>
+              <button id="rename-playlist-button" class="share-button" type="submit">Save name</button>
+              <p id="rename-playlist-status" class="form-status" aria-live="polite"></p>
+            </form>
+            <button id="delete-playlist" class="text-action compact playlist-delete-action" type="button">Delete playlist</button>
+          </div>
+        </dialog>
       </section>
     </main>
 
+    <dialog id="account-dialog" class="popup-dialog account-dialog" aria-labelledby="account-dialog-title">
+      <div class="popup-dialog-card">
+        <div class="popup-dialog-heading">
+          <h2 id="account-dialog-title">Your profile</h2>
+          <button id="close-account-dialog" class="text-action compact" type="button">Close</button>
+        </div>
+        <form id="account-form" class="account-form">
+          <label>
+            <span>Name</span>
+            <input id="account-name" type="text" maxlength="40" autocomplete="name" required />
+          </label>
+          <p class="account-email"><span>Email</span><strong id="account-email"></strong></p>
+          <button id="account-save" class="share-button" type="submit">Save</button>
+          <p id="account-status" class="form-status" aria-live="polite"></p>
+        </form>
+        <button id="account-sign-out" class="text-action compact account-sign-out" type="button">Sign out</button>
+      </div>
+    </dialog>
+
     <audio id="preview-audio" preload="none"></audio>
     <div id="toast-root" class="toast-root" aria-live="polite" aria-atomic="true"></div>
-    <script type="module" src="./app.js?v=20261119-4"></script>
+    <script type="module" src="./app.js?v=20261119-5"></script>
   </body>
 </html>
