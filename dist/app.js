@@ -2067,13 +2067,14 @@ async function shareActiveInviteLink() {
   const url = playlistShareUrl();
   if (!url) return;
   const name = cleanText(state.activePlaylist?.playlistName, 60) || "this playlist";
+  const code = cleanText(state.activePlaylist?.inviteCode, 4);
   inviteShareStatus.textContent = "";
 
   if (navigator.share) {
     try {
       await navigator.share({
         title: `${name} · ${SITE_TITLE}`,
-        text: `Join ${name} on ${SITE_TITLE}.`,
+        text: `Join ${name} on ${SITE_TITLE}. Code: ${code}`,
         url,
       });
       return;
