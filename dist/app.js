@@ -23,7 +23,7 @@ import {
   signOut,
   updateProfile,
   where,
-} from "./firebase.js";
+} from "./firebase.js?v=20261119-3";
 
 const $ = (selector) => document.querySelector(selector);
 
