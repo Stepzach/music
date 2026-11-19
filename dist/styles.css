@@ -46,9 +46,9 @@ html[data-theme="dark"] {
   --toast-error-border: #814c51;
   --toast-error-surface: #291b1e;
   --button-hover: #ddd8d1;
-  --quiet-control: #d8d8d3;
-  --quiet-control-hover: #e5e5df;
-  --quiet-control-border: #bfc0ba;
+  --quiet-control: #c3c3be;
+  --quiet-control-hover: #d0d0ca;
+  --quiet-control-border: #aaa9a4;
   --chain: rgba(244,241,236,.74);
 }
 
@@ -173,11 +173,12 @@ html.is-route-loading.is-route-revealing .page-shell {
 .top-controls {
   position: fixed;
   z-index: 55;
-  top: 18px;
-  right: 18px;
+  top: max(18px, env(safe-area-inset-top));
+  right: max(18px, env(safe-area-inset-right));
   display: flex;
   align-items: center;
   gap: 8px;
+  transform: translateZ(0);
 }
 
 .theme-toggle {
@@ -1289,8 +1290,9 @@ html[data-theme="dark"] .play-button { color: #151515; }
 .playlist-fixed-actions {
   position: fixed;
   z-index: 55;
-  top: 18px;
-  left: 18px;
+  top: max(18px, env(safe-area-inset-top));
+  left: max(18px, env(safe-area-inset-left));
+  transform: translateZ(0);
 }
 
 .playlist-back-button {
@@ -1371,7 +1373,7 @@ html[data-theme="dark"] .play-button { color: #151515; }
 }
 
 .leave-playlist:hover:not(:disabled),
-.invite-people:hover:not(:disabled) { border-color: var(--muted); background: var(--quiet-control-hover); }
+.invite-people:hover:not(:disabled) { border-color: var(--muted); background: var(--quiet-control-hover); color: #151515; }
 
 .leave-playlist:active:not(:disabled),
 .invite-people:active:not(:disabled) { transform: scale(.96); }
@@ -1379,6 +1381,8 @@ html[data-theme="dark"] .play-button { color: #151515; }
 .leave-playlist:disabled,
 .invite-people:disabled { cursor: wait; opacity: .55; }
 
+.leave-playlist { width: 31px; padding: 0; }
+.leave-playlist i { font-size: 12px; }
 .invite-people .invite-symbol { font-size: 15px; line-height: 1; }
 
 .member-overflow {
@@ -1452,6 +1456,26 @@ html[data-theme="dark"] .play-button { color: #151515; }
 .member-dialog-heading h2,
 .popup-dialog-heading h2 { font-size: 23px; }
 
+.dialog-close {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 17px;
+  line-height: 1;
+  transition: color .16s ease, transform .16s ease;
+}
+
+.dialog-close:hover { color: var(--ink); }
+.dialog-close:active { transform: scale(.9); }
+.dialog-close i { pointer-events: none; }
+
 .member-dialog-list {
   display: grid;
   gap: 15px;
@@ -1479,12 +1503,6 @@ html[data-theme="dark"] .play-button { color: #151515; }
   color: var(--muted);
   font-size: 14px;
   font-weight: 400;
-}
-
-.member-dialog-creator-count {
-  margin: 3px 0 0;
-  color: var(--muted);
-  font-size: 14px;
 }
 
 .member-contribution-heading {
@@ -1564,6 +1582,26 @@ html[data-theme="dark"] .play-button { color: #151515; }
   line-height: 1.4;
 }
 
+.confirmation-copy {
+  margin: 16px 0 0;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.confirmation-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 20px 0 0;
+}
+
+.confirmation-actions .quiet-button,
+.confirmation-actions .share-button {
+  width: 100%;
+  min-height: 45px;
+}
+
 .settings-form,
 .account-form { display: grid; gap: 12px; }
 
@@ -1617,11 +1655,14 @@ html[data-theme="dark"] .play-button { color: #151515; }
 .account-sign-out { margin-top: 9px; }
 
 @media (max-width: 640px) {
-  .top-controls { top: 14px; right: 14px; }
+  .top-controls {
+    top: max(14px, env(safe-area-inset-top));
+    right: max(14px, env(safe-area-inset-right));
+  }
 
   .playlist-fixed-actions {
-    top: 14px;
-    left: 14px;
+    top: max(14px, env(safe-area-inset-top));
+    left: max(14px, env(safe-area-inset-left));
   }
 
   .playlist-details {
@@ -1632,14 +1673,18 @@ html[data-theme="dark"] .play-button { color: #151515; }
   .playlist-members { gap: 6px; }
   .playlist-members { flex-wrap: nowrap; }
   .playlist-members-summary { flex-basis: auto; }
-  .leave-playlist.text-action,
-  .invite-people.text-action {
+  .leave-playlist,
+  .invite-people {
     min-height: 29px;
     padding: 0 8px;
     font-size: 12px;
   }
+  .leave-playlist { width: 29px; padding: 0; }
   .playlist-settings-trigger { font-size: 12px; }
   .member-action-long { display: none; }
   .member-action-short { display: inline; }
   .invite-people .invite-symbol { font-size: 14px; }
+
+  .member-dialog::backdrop,
+  .popup-dialog::backdrop { background: rgba(0, 0, 0, .38); }
 }

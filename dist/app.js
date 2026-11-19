@@ -92,6 +92,10 @@ const invitePeople = $("#invite-people");
 const inviteDialog = $("#invite-dialog");
 const inviteCode = $("#invite-code");
 const closeInviteDialog = $("#close-invite-dialog");
+const leavePlaylistDialog = $("#leave-playlist-dialog");
+const closeLeavePlaylistDialog = $("#close-leave-playlist-dialog");
+const cancelLeavePlaylist = $("#cancel-leave-playlist");
+const confirmLeavePlaylist = $("#confirm-leave-playlist");
 const openPlaylistSettings = $("#open-playlist-settings");
 const playlistSettingsDialog = $("#playlist-settings-dialog");
 const closePlaylistSettings = $("#close-playlist-settings");
@@ -1198,6 +1202,7 @@ function clearPlaylistSubscriptions() {
   renamePlaylistStatus.textContent = "";
   if (memberDialog.open) memberDialog.close();
   if (inviteDialog.open) inviteDialog.close();
+  if (leavePlaylistDialog.open) leavePlaylistDialog.close();
   if (playlistSettingsDialog.open) playlistSettingsDialog.close();
 }
 
@@ -1480,24 +1485,26 @@ function contributorSongTotals() {
   );
 }
 
-function songCountLabel(count) {
-  return `${count} ${count === 1 ? "song" : "songs"}`;
+function memberDialogContributors(playlist, creatorName) {
+  const contributors = contributorSongTotals();
+  const creator = contributorIdentity(playlist?.ownerUid, creatorName);
+  if (creator && !contributors.some((contributor) => contributor.key === creator.key)) {
+    contributors.push({ ...creator, songCount: 0 });
+  }
+  return contributors.sort((left, right) =>
+    right.songCount - left.songCount || left.name.localeCompare(right.name)
+  );
 }
 
-function creatorSongCount(contributors, creatorName, creatorUid) {
-  const creatorId = cleanText(creatorUid, 128);
-  const exactMatch = creatorId && contributors.find((contributor) => contributor.id === creatorId);
-  if (exactMatch) return exactMatch.songCount;
-  const normalizedName = cleanText(creatorName, 40).toLocaleLowerCase();
-  return contributors.find((contributor) => contributor.name.toLocaleLowerCase() === normalizedName)?.songCount || 0;
+function songCountLabel(count) {
+  return `${count} ${count === 1 ? "song" : "songs"}`;
 }
 
 function renderMemberDialog() {
   if (!state.activePlaylist) return;
   const playlist = state.activePlaylist;
   const creatorName = ownerNameForPlaylist(playlist);
-  const contributors = contributorSongTotals();
-  const creatorCount = creatorSongCount(contributors, creatorName, playlist.ownerUid);
+  const contributors = memberDialogContributors(playlist, creatorName);
 
   memberDialogList.replaceChildren();
 
@@ -1505,10 +1512,7 @@ function renderMemberDialog() {
   const creatorLine = createElement("p", "member-dialog-creator-name", `Creator: ${creatorName}`);
   creatorLine.append(document.createTextNode(" "));
   creatorLine.append(createElement("span", "member-dialog-created-on", `(on: ${playlistCardDate(playlist.createdAt)})`));
-  creator.append(
-    creatorLine,
-    createElement("p", "member-dialog-creator-count", `${songCountLabel(creatorCount)} contributed`)
-  );
+  creator.append(creatorLine);
 
   const contributionSection = createElement("section", "member-contributions");
   contributionSection.append(createElement("h3", "member-contribution-heading", "Contributors"));
@@ -1585,7 +1589,7 @@ function renderPlaylistDetails() {
   const code = cleanText(state.activePlaylist?.inviteCode, 4);
   invitePeople.hidden = !isMember;
   invitePeople.disabled = !isMember || !code;
-  invitePeople.setAttribute("aria-label", isMember && code ? "Add people to this playlist" : "No invite code available");
+  invitePeople.setAttribute("aria-label", isMember && code ? "Invite friends to this playlist" : "No invite code available");
   inviteCode.textContent = code || "—";
   leavePlaylist.hidden = !isMember || isOwner;
   // Reset the control whenever a playlist is rendered. Without this, a
@@ -1941,7 +1945,6 @@ async function leaveActivePlaylist() {
     toast("The creator can’t leave this playlist.", "error");
     return;
   }
-  if (!window.confirm("Leave this playlist?")) return;
 
   const playlist = state.activePlaylist;
   const membershipRef = doc(db, "sharedPlaylists", playlist.id, "members", state.user.uid);
@@ -1998,6 +2001,15 @@ function setInviteDialogOpen(open) {
     return;
   }
   if (inviteDialog.open) inviteDialog.close();
+}
+
+function setLeavePlaylistDialogOpen(open) {
+  if (open) {
+    if (!state.activePlaylist || !isActivePlaylistMember() || isActivePlaylistOwner()) return;
+    if (!leavePlaylistDialog.open) leavePlaylistDialog.showModal();
+    return;
+  }
+  if (leavePlaylistDialog.open) leavePlaylistDialog.close();
 }
 
 function setPlaylistSettingsOpen(open) {
@@ -2324,10 +2336,14 @@ joinPlaylistForm.addEventListener("submit", async (event) => {
 backToPlaylists.addEventListener("click", backToHome);
 
 invitePeople.addEventListener("click", () => setInviteDialogOpen(true));
-leavePlaylist.addEventListener("click", () => {
+leavePlaylist.addEventListener("click", () => setLeavePlaylistDialogOpen(true));
+closeInviteDialog.addEventListener("click", () => setInviteDialogOpen(false));
+closeLeavePlaylistDialog.addEventListener("click", () => setLeavePlaylistDialogOpen(false));
+cancelLeavePlaylist.addEventListener("click", () => setLeavePlaylistDialogOpen(false));
+confirmLeavePlaylist.addEventListener("click", () => {
+  setLeavePlaylistDialogOpen(false);
   void leaveActivePlaylist();
 });
-closeInviteDialog.addEventListener("click", () => setInviteDialogOpen(false));
 openPlaylistSettings.addEventListener("click", () => setPlaylistSettingsOpen(true));
 closePlaylistSettings.addEventListener("click", () => setPlaylistSettingsOpen(false));
 

@@ -29,7 +29,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300..700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
-    <link rel="stylesheet" href="./styles.css?v=20261119-11" />
+    <link rel="stylesheet" href="./styles.css?v=20261119-12" />
   </head>
   <body>
     <a class="skip-link" href="#app-root">Skip to the app</a>
@@ -161,14 +161,13 @@
         <div class="playlist-details" aria-label="Playlist details">
           <div class="playlist-members">
             <div id="playlist-members-summary" class="playlist-members-summary" aria-live="polite"></div>
-            <button id="leave-playlist" class="leave-playlist text-action compact" type="button" aria-label="Leave playlist" hidden>
-              <span class="member-action-long">Leave playlist</span>
-              <span class="member-action-short">Leave</span>
-            </button>
-            <button id="invite-people" class="invite-people text-action compact" type="button" aria-label="Add people">
+            <button id="invite-people" class="invite-people" type="button" aria-label="Invite friends">
               <span class="invite-symbol" aria-hidden="true">+</span>
-              <span class="member-action-long">Add people</span>
-              <span class="member-action-short">Add</span>
+              <span class="member-action-long">Invite friends</span>
+              <span class="member-action-short">Invite</span>
+            </button>
+            <button id="leave-playlist" class="leave-playlist" type="button" aria-label="Leave playlist" hidden>
+              <i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i>
             </button>
           </div>
           <button id="open-playlist-settings" class="text-action compact playlist-settings-trigger" type="button">Edit playlist</button>
@@ -222,7 +221,7 @@
           <div class="member-dialog-card">
             <div class="member-dialog-heading">
               <h2 id="member-dialog-title">In this playlist</h2>
-              <button id="close-member-dialog" class="text-action compact" type="button">Close</button>
+              <button id="close-member-dialog" class="dialog-close" type="button" aria-label="Close people list"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
             </div>
             <div id="member-dialog-list" class="member-dialog-list"></div>
           </div>
@@ -231,8 +230,8 @@
         <dialog id="invite-dialog" class="popup-dialog" aria-labelledby="invite-dialog-title">
           <div class="popup-dialog-card">
             <div class="popup-dialog-heading">
-              <h2 id="invite-dialog-title">Add people</h2>
-              <button id="close-invite-dialog" class="text-action compact" type="button">Close</button>
+              <h2 id="invite-dialog-title">Invite friends</h2>
+              <button id="close-invite-dialog" class="dialog-close" type="button" aria-label="Close invite"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
             </div>
             <p class="invite-label">Playlist code</p>
             <p id="invite-code" class="invite-code"></p>
@@ -240,11 +239,25 @@
           </div>
         </dialog>
 
+        <dialog id="leave-playlist-dialog" class="popup-dialog confirmation-dialog" aria-labelledby="leave-playlist-dialog-title" aria-describedby="leave-playlist-dialog-copy">
+          <div class="popup-dialog-card">
+            <div class="popup-dialog-heading">
+              <h2 id="leave-playlist-dialog-title">Leave playlist?</h2>
+              <button id="close-leave-playlist-dialog" class="dialog-close" type="button" aria-label="Close leave confirmation"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+            </div>
+            <p id="leave-playlist-dialog-copy" class="confirmation-copy">Are you sure you want to leave? You can join again with the code anytime.</p>
+            <div class="confirmation-actions">
+              <button id="cancel-leave-playlist" class="quiet-button" type="button">Cancel</button>
+              <button id="confirm-leave-playlist" class="share-button" type="button">Leave</button>
+            </div>
+          </div>
+        </dialog>
+
         <dialog id="playlist-settings-dialog" class="popup-dialog" aria-labelledby="playlist-settings-title">
           <div class="popup-dialog-card">
             <div class="popup-dialog-heading">
               <h2 id="playlist-settings-title">Edit playlist</h2>
-              <button id="close-playlist-settings" class="text-action compact" type="button">Close</button>
+              <button id="close-playlist-settings" class="dialog-close" type="button" aria-label="Close playlist settings"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
             </div>
             <form id="rename-playlist-form" class="settings-form">
               <label>
@@ -264,7 +277,7 @@
       <div class="popup-dialog-card">
         <div class="popup-dialog-heading">
           <h2 id="account-dialog-title">Your profile</h2>
-          <button id="close-account-dialog" class="text-action compact" type="button">Close</button>
+          <button id="close-account-dialog" class="dialog-close" type="button" aria-label="Close profile"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
         </div>
         <form id="account-form" class="account-form">
           <label>
@@ -281,6 +294,6 @@
 
     <audio id="preview-audio" preload="none"></audio>
     <div id="toast-root" class="toast-root" aria-live="polite" aria-atomic="true"></div>
-    <script type="module" src="./app.js?v=20261119-11"></script>
+    <script type="module" src="./app.js?v=20261119-12"></script>
   </body>
 </html>
