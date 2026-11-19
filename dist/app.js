@@ -10,8 +10,6 @@ import {
   doc,
   getDoc,
   getDocs,
-  getRedirectResult,
-  googleProvider,
   onAuthStateChanged,
   onSnapshot,
   orderBy,
@@ -20,12 +18,11 @@ import {
   serverTimestamp,
   setDoc,
   signInWithEmailAndPassword,
-  signInWithRedirect,
   signOut,
   updateProfile,
   where,
   writeBatch,
-} from "./firebase.js?v=20261119-8";
+} from "./firebase.js?v=20261119-10";
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -62,9 +59,7 @@ const authPasswordRow = $("#auth-password-row");
 const authPasswordInput = $("#auth-password");
 const authSubmit = $("#auth-submit");
 const authStatus = $("#auth-status");
-const authDivider = $("#auth-divider");
 const authSwitch = $("#auth-switch");
-const googleSignInButton = $("#google-sign-in");
 const accountTrigger = $("#account-trigger");
 const accountDialog = $("#account-dialog");
 const closeAccountDialog = $("#close-account-dialog");
@@ -80,11 +75,13 @@ const homeStatus = $("#home-status");
 const showCreatePlaylist = $("#show-create-playlist");
 const showJoinPlaylist = $("#show-join-playlist");
 const createPlaylistForm = $("#create-playlist-form");
+const closeCreatePlaylist = $("#close-create-playlist");
 const createPlaylistName = $("#new-playlist-name");
 const selectedPlaylistVisibility = () => document.querySelector("input[name='playlist-visibility']:checked")?.value || "private";
 const createPlaylistButton = $("#create-playlist-button");
 const createPlaylistStatus = $("#create-playlist-status");
 const joinPlaylistForm = $("#join-playlist-form");
+const closeJoinPlaylist = $("#close-join-playlist");
 const joinCodeInput = $("#join-code");
 const joinPlaylistButton = $("#join-playlist-button");
 const joinPlaylistStatus = $("#join-playlist-status");
@@ -1119,7 +1116,6 @@ function readableError(error, fallback = "Something went wrong. Try again.") {
     "auth/invalid-email": "Enter a valid email address.",
     "auth/weak-password": "Use at least 6 characters for your password.",
     "auth/operation-not-allowed": "This sign-in option isn’t available right now.",
-    "auth/unauthorized-domain": "Google sign-in needs this site added to Firebase first.",
     "permission-denied": "You don’t have access to that yet.",
   };
   return messages[code] || fallback;
@@ -1142,8 +1138,6 @@ function showAuth(mode = "signUp") {
   authNameRow.hidden = isSignIn;
   authEmailRow.hidden = isProfile;
   authPasswordRow.hidden = isProfile;
-  authDivider.hidden = isProfile;
-  googleSignInButton.hidden = isProfile;
   authSwitch.hidden = isProfile;
   authNameInput.required = !isSignIn;
   authEmailInput.required = !isProfile;
@@ -1415,7 +1409,7 @@ function renderPlaylistGroup(target, playlists, emptyText, options) {
 function renderHome() {
   homeStatus.textContent = "";
   updateAccountLabels();
-  renderPlaylistGroup(yourPlaylistList, state.memberships, "Nothing here yet. Make one or join one.", {});
+  renderPlaylistGroup(yourPlaylistList, state.memberships, "Nothing here yet.", {});
   renderPlaylistGroup(communityPlaylistList, state.communityPlaylists, "No public playlists yet.", { community: true });
 }
 
@@ -1455,15 +1449,88 @@ function startCommunityListener() {
   });
 }
 
+function contributorIdentity(userId, displayName) {
+  const name = cleanText(displayName, 40);
+  if (!name) return null;
+  const id = cleanText(userId, 128);
+  return {
+    id,
+    name,
+    key: id ? `user:${id}` : `name:${name.toLocaleLowerCase()}`,
+  };
+}
+
+function contributorSongTotals() {
+  const totals = new Map();
+  state.shares.forEach((share) => {
+    const contributor = contributorIdentity(share.senderUid, share.senderName);
+    const songCount = tracksFromShare(share).length;
+    if (!contributor || !songCount) return;
+    const current = totals.get(contributor.key) || { ...contributor, songCount: 0 };
+    current.songCount += songCount;
+    totals.set(contributor.key, current);
+  });
+  return [...totals.values()].sort((left, right) =>
+    right.songCount - left.songCount || left.name.localeCompare(right.name)
+  );
+}
+
+function songCountLabel(count) {
+  return `${count} ${count === 1 ? "song" : "songs"}`;
+}
+
+function creatorSongCount(contributors, creatorName, creatorUid) {
+  const creatorId = cleanText(creatorUid, 128);
+  const exactMatch = creatorId && contributors.find((contributor) => contributor.id === creatorId);
+  if (exactMatch) return exactMatch.songCount;
+  const normalizedName = cleanText(creatorName, 40).toLocaleLowerCase();
+  return contributors.find((contributor) => contributor.name.toLocaleLowerCase() === normalizedName)?.songCount || 0;
+}
+
+function renderMemberDialog() {
+  if (!state.activePlaylist) return;
+  const playlist = state.activePlaylist;
+  const creatorName = ownerNameForPlaylist(playlist);
+  const contributors = contributorSongTotals();
+  const creatorCount = creatorSongCount(contributors, creatorName, playlist.ownerUid);
+
+  memberDialogList.replaceChildren();
+
+  const creator = createElement("section", "member-dialog-creator");
+  const creatorLine = createElement("p", "member-dialog-creator-name", `Creator: ${creatorName}`);
+  creatorLine.append(document.createTextNode(" "));
+  creatorLine.append(createElement("span", "member-dialog-created-on", `(on: ${playlistCardDate(playlist.createdAt)})`));
+  creator.append(
+    creatorLine,
+    createElement("p", "member-dialog-creator-count", `${songCountLabel(creatorCount)} contributed`)
+  );
+
+  const contributionSection = createElement("section", "member-contributions");
+  contributionSection.append(createElement("h3", "member-contribution-heading", "Contributors"));
+  if (!contributors.length) {
+    contributionSection.append(createElement("p", "member-contribution-empty", "No songs shared yet."));
+  } else {
+    const list = createElement("ul", "member-contribution-list");
+    contributors.forEach((contributor) => {
+      const row = createElement("li", "member-contribution-row");
+      row.append(
+        createElement("span", "member-contribution-name", contributor.name),
+        createElement("span", "member-contribution-count", songCountLabel(contributor.songCount))
+      );
+      list.append(row);
+    });
+    contributionSection.append(list);
+  }
+
+  memberDialogList.append(creator, contributionSection);
+}
+
 function memberNames() {
   if (!isActivePlaylistMember() && !isPublicPlaylist(state.activePlaylist)) return [];
   const contributors = new Map();
   const addContributor = (userId, displayName) => {
-    const name = cleanText(displayName, 40);
-    if (!name) return;
-    const id = cleanText(userId, 128);
-    const key = id ? `user:${id}` : `name:${name.toLocaleLowerCase()}`;
-    if (!contributors.has(key)) contributors.set(key, name);
+    const contributor = contributorIdentity(userId, displayName);
+    if (contributor && !contributors.has(contributor.key)) contributors.set(contributor.key, contributor.name);
   };
 
   state.activeMembers.forEach((member) => {
@@ -1499,9 +1566,9 @@ function renderPlaylistDetails() {
       playlistMembersSummary.append(document.createTextNode(", "));
       const overflow = createElement("button", "member-overflow", `+${names.length - 2}`);
       overflow.type = "button";
-      overflow.setAttribute("aria-label", `Show all ${names.length} people in this playlist`);
+      overflow.setAttribute("aria-label", `Show people and song contributions for ${names.length} people in this playlist`);
       overflow.addEventListener("click", () => {
-        memberDialogList.textContent = names.join(", ");
+        renderMemberDialog();
         if (!memberDialog.open) memberDialog.showModal();
       });
       playlistMembersSummary.append(overflow);
@@ -1581,6 +1648,7 @@ function subscribeToPlaylistShares() {
   state.feedUnsubscribe = onSnapshot(sharesQuery, (snapshot) => {
     state.shares = snapshot.docs.map((document) => ({ id: document.id, ...document.data() }));
     renderPlaylistDetails();
+    if (memberDialog.open) renderMemberDialog();
     renderFeed();
     refreshFeedPreviews();
     refreshAppleMusicLinks();
@@ -2101,19 +2169,6 @@ authForm.addEventListener("submit", async (event) => {
   }
 });
 
-googleSignInButton.addEventListener("click", async () => {
-  googleSignInButton.disabled = true;
-  authStatus.textContent = "Taking you to Google…";
-  try {
-    await authPersistenceReady;
-    await signInWithRedirect(auth, googleProvider);
-  } catch (error) {
-    console.error(error);
-    authStatus.textContent = readableError(error);
-    googleSignInButton.disabled = false;
-  }
-});
-
 async function handleSignOut() {
   try {
     setAccountDialogOpen(false);
@@ -2148,14 +2203,24 @@ showCreatePlaylist.addEventListener("click", () => {
   createPlaylistForm.hidden = !createPlaylistForm.hidden;
   joinPlaylistForm.hidden = true;
   createPlaylistStatus.textContent = "";
-  if (!createPlaylistForm.hidden) createPlaylistName.focus();
 });
 
 showJoinPlaylist.addEventListener("click", () => {
   joinPlaylistForm.hidden = !joinPlaylistForm.hidden;
   createPlaylistForm.hidden = true;
   joinPlaylistStatus.textContent = "";
-  if (!joinPlaylistForm.hidden) joinCodeInput.focus();
+});
+
+closeCreatePlaylist.addEventListener("click", () => {
+  createPlaylistForm.reset();
+  createPlaylistForm.hidden = true;
+  createPlaylistStatus.textContent = "";
+});
+
+closeJoinPlaylist.addEventListener("click", () => {
+  joinPlaylistForm.reset();
+  joinPlaylistForm.hidden = true;
+  joinPlaylistStatus.textContent = "";
 });
 
 joinCodeInput.addEventListener("input", () => {
@@ -2258,13 +2323,6 @@ window.addEventListener("popstate", () => {
 showAuth("signUp");
 
 void authPersistenceReady.finally(() => {
-  void getRedirectResult(auth).catch((error) => {
-    console.error(error);
-    showAuth("signUp");
-    authStatus.textContent = readableError(error);
-    finishInitialRouteLoad();
-  });
-
   onAuthStateChanged(auth, (user) => {
     void activateUser(user);
   });

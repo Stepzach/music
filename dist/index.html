@@ -29,7 +29,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300..700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
-    <link rel="stylesheet" href="./styles.css?v=20261119-8" />
+    <link rel="stylesheet" href="./styles.css?v=20261119-10" />
   </head>
   <body>
     <a class="skip-link" href="#app-root">Skip to the app</a>
@@ -76,8 +76,6 @@
             <p id="auth-status" class="form-status" aria-live="polite"></p>
           </form>
 
-          <div id="auth-divider" class="auth-divider"><span>or</span></div>
-          <button id="google-sign-in" class="quiet-button google-button" type="button"><i class="fa-brands fa-google" aria-hidden="true"></i> Continue with Google</button>
           <button id="auth-switch" class="text-action" type="button">Already have an account? Sign in</button>
         </section>
       </section>
@@ -90,7 +88,10 @@
           </div>
 
           <form id="create-playlist-form" class="inline-form create-playlist-form" hidden>
-            <h2 class="inline-form-title">Create new playlist</h2>
+            <div class="inline-form-heading">
+              <h2 class="inline-form-title">Create new playlist</h2>
+              <button id="close-create-playlist" class="inline-form-close" type="button" aria-label="Close create playlist">×</button>
+            </div>
             <label>
               <span>Name it</span>
               <input id="new-playlist-name" type="text" maxlength="60" autocomplete="off" placeholder="Friday night" required />
@@ -117,7 +118,10 @@
           </form>
 
           <form id="join-playlist-form" class="inline-form join-form" hidden>
-            <h2 class="inline-form-title">Join a playlist</h2>
+            <div class="inline-form-heading">
+              <h2 class="inline-form-title">Join a playlist</h2>
+              <button id="close-join-playlist" class="inline-form-close" type="button" aria-label="Close join playlist">×</button>
+            </div>
             <label>
               <span>Four-digit code</span>
               <input id="join-code" class="code-input" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="4" pattern="[0-9]{4}" placeholder="0000" required />
@@ -157,8 +161,15 @@
         <div class="playlist-details" aria-label="Playlist details">
           <div class="playlist-members">
             <div id="playlist-members-summary" class="playlist-members-summary" aria-live="polite"></div>
-            <button id="leave-playlist" class="leave-playlist text-action compact" type="button" hidden>Leave playlist</button>
-            <button id="invite-people" class="invite-people text-action compact" type="button"><span aria-hidden="true">+</span> Add people</button>
+            <button id="leave-playlist" class="leave-playlist text-action compact" type="button" aria-label="Leave playlist" hidden>
+              <span class="member-action-long">Leave playlist</span>
+              <span class="member-action-short">Leave</span>
+            </button>
+            <button id="invite-people" class="invite-people text-action compact" type="button" aria-label="Add people">
+              <span class="invite-symbol" aria-hidden="true">+</span>
+              <span class="member-action-long">Add people</span>
+              <span class="member-action-short">Add</span>
+            </button>
           </div>
           <button id="open-playlist-settings" class="text-action compact playlist-settings-trigger" type="button">Edit playlist</button>
         </div>
@@ -213,7 +224,7 @@
               <h2 id="member-dialog-title">In this playlist</h2>
               <button id="close-member-dialog" class="text-action compact" type="button">Close</button>
             </div>
-            <p id="member-dialog-list" class="member-dialog-list"></p>
+            <div id="member-dialog-list" class="member-dialog-list"></div>
           </div>
         </dialog>
 
@@ -270,6 +281,6 @@
 
     <audio id="preview-audio" preload="none"></audio>
     <div id="toast-root" class="toast-root" aria-live="polite" aria-atomic="true"></div>
-    <script type="module" src="./app.js?v=20261119-9"></script>
+    <script type="module" src="./app.js?v=20261119-10"></script>
   </body>
 </html>

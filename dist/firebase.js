@@ -2,13 +2,10 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/11.4.0/firebas
 import {
   browserLocalPersistence,
   browserSessionPersistence,
-  GoogleAuthProvider,
   createUserWithEmailAndPassword,
   getAuth,
-  getRedirectResult,
   onAuthStateChanged,
   signInWithEmailAndPassword,
-  signInWithRedirect,
   signOut,
   setPersistence,
   updateProfile,
@@ -22,7 +19,6 @@ import {
   getDoc,
   getDocs,
   getFirestore,
-  limit,
   onSnapshot,
   orderBy,
   query,
@@ -50,8 +46,6 @@ const authPersistenceReady = setPersistence(auth, browserLocalPersistence)
   .catch(() => setPersistence(auth, browserSessionPersistence))
   .catch(() => undefined);
 const db = getFirestore(app);
-const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({ prompt: "select_account" });
 
 export {
   addDoc,
@@ -67,9 +61,6 @@ export {
   doc,
   getDoc,
   getDocs,
-  getRedirectResult,
-  googleProvider,
-  limit,
   onAuthStateChanged,
   onSnapshot,
   orderBy,
@@ -78,7 +69,6 @@ export {
   serverTimestamp,
   setDoc,
   signInWithEmailAndPassword,
-  signInWithRedirect,
   signOut,
   setPersistence,
   updateProfile,
