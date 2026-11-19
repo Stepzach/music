@@ -715,7 +715,14 @@ html[data-theme="dark"] .play-button { color: #151515; }
 
 .track-copy { grid-area: content; align-self: end; padding-bottom: 4px; }
 
-.track-copy h3 { font-size: 19px;     line-height: 0.9; overflow: visible; }
+.track-copy h3 {
+  overflow: visible;
+  font-size: 19px;
+  line-height: 1.05;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 
 .shared-meta {
   font-family: inherit;
