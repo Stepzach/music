@@ -8,6 +8,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   getRedirectResult,
   googleProvider,
   limit,
@@ -23,7 +24,8 @@ import {
   signOut,
   updateProfile,
   where,
-} from "./firebase.js?v=20261119-3";
+  writeBatch,
+} from "./firebase.js?v=20261119-4";
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -62,8 +64,8 @@ const authDivider = $("#auth-divider");
 const authSwitch = $("#auth-switch");
 const googleSignInButton = $("#google-sign-in");
 const homeAccountName = $("#home-account-name");
-const playlistAccountName = $("#playlist-account-name");
 const homeSignOut = $("#home-sign-out");
+const playlistAccountName = $("#playlist-account-name");
 const playlistSignOut = $("#playlist-sign-out");
 const playlistList = $("#playlist-list");
 const homeStatus = $("#home-status");
@@ -78,8 +80,18 @@ const joinCodeInput = $("#join-code");
 const joinPlaylistButton = $("#join-playlist-button");
 const joinPlaylistStatus = $("#join-playlist-status");
 const backToPlaylists = $("#back-to-playlists");
-const playlistTitle = $("#playlist-title");
-const playlistMeta = $("#playlist-meta");
+const playlistMembersSummary = $("#playlist-members-summary");
+const playlistCode = $("#playlist-code");
+const showRenamePlaylist = $("#show-rename-playlist");
+const renamePlaylistForm = $("#rename-playlist-form");
+const renamePlaylistName = $("#rename-playlist-name");
+const renamePlaylistButton = $("#rename-playlist-button");
+const cancelRenamePlaylist = $("#cancel-rename-playlist");
+const renamePlaylistStatus = $("#rename-playlist-status");
+const deletePlaylistButton = $("#delete-playlist");
+const memberDialog = $("#member-dialog");
+const memberDialogList = $("#member-dialog-list");
+const closeMemberDialog = $("#close-member-dialog");
 const DISCO_ENGINE_URL = "./disco-engine.js";
 const MAX_TRACKS_PER_SHARE = 12;
 const THEME_OVERRIDE_STORAGE_KEY = "resonance-theme-override";
@@ -100,9 +112,12 @@ const state = {
   profile: null,
   memberships: [],
   activePlaylist: null,
+  activeMembers: [],
   authMode: "signUp",
   membershipUnsubscribe: null,
   feedUnsubscribe: null,
+  memberUnsubscribe: null,
+  playlistUnsubscribe: null,
 };
 const deezerPreviewCache = new Map();
 const deezerPreviewRequests = new Map();
@@ -110,6 +125,7 @@ const appleUrlCache = new Map();
 const appleUrlRequests = new Map();
 let feedPreviewRefreshTimer = 0;
 let themeBoundaryTimer = 0;
+const playlistMetadataUnsubscribers = new Map();
 
 function automaticTheme(now = new Date()) {
   const hour = now.getHours();
@@ -1047,7 +1063,7 @@ function readableError(error, fallback = "Something went wrong. Try again.") {
     "auth/invalid-credential": "That email or password isn’t right.",
     "auth/invalid-email": "Enter a valid email address.",
     "auth/weak-password": "Use at least 6 characters for your password.",
-    "auth/operation-not-allowed": "This sign-in option needs a quick Firebase setup.",
+    "auth/operation-not-allowed": "This sign-in option isn’t available right now.",
     "auth/unauthorized-domain": "Google sign-in needs this site added to Firebase first.",
     "permission-denied": "You don’t have access to that yet.",
   };
@@ -1106,6 +1122,19 @@ function clearFeedSubscription() {
 function clearMembershipSubscription() {
   if (state.membershipUnsubscribe) state.membershipUnsubscribe();
   state.membershipUnsubscribe = null;
+  playlistMetadataUnsubscribers.forEach((unsubscribe) => unsubscribe());
+  playlistMetadataUnsubscribers.clear();
+}
+
+function clearPlaylistSubscriptions() {
+  if (state.memberUnsubscribe) state.memberUnsubscribe();
+  if (state.playlistUnsubscribe) state.playlistUnsubscribe();
+  state.memberUnsubscribe = null;
+  state.playlistUnsubscribe = null;
+  state.activeMembers = [];
+  renamePlaylistForm.hidden = true;
+  renamePlaylistStatus.textContent = "";
+  if (memberDialog.open) memberDialog.close();
 }
 
 function clearPlaylistDraft() {
@@ -1127,6 +1156,56 @@ function sortMemberships(items) {
     const leftTime = timestampValue(left.joinedAt)?.getTime() || 0;
     const rightTime = timestampValue(right.joinedAt)?.getTime() || 0;
     return rightTime - leftTime;
+  });
+}
+
+function sortMembers(items) {
+  return items.sort((left, right) => {
+    const leftTime = timestampValue(left.joinedAt)?.getTime() || 0;
+    const rightTime = timestampValue(right.joinedAt)?.getTime() || 0;
+    if (leftTime !== rightTime) return leftTime - rightTime;
+    return cleanText(left.displayName, 40).localeCompare(cleanText(right.displayName, 40));
+  });
+}
+
+function upsertMembership(membership) {
+  if (!membership?.id) return;
+  state.memberships = sortMemberships([
+    ...state.memberships.filter((item) => item.id !== membership.id),
+    membership,
+  ]);
+  syncMembershipMetadataSubscriptions();
+  renderHome();
+}
+
+function syncMembershipMetadataSubscriptions() {
+  const activeIds = new Set(state.memberships.map((membership) => membership.id));
+  playlistMetadataUnsubscribers.forEach((unsubscribe, playlistId) => {
+    if (!activeIds.has(playlistId)) {
+      unsubscribe();
+      playlistMetadataUnsubscribers.delete(playlistId);
+    }
+  });
+
+  state.memberships.forEach((membership) => {
+    if (playlistMetadataUnsubscribers.has(membership.id)) return;
+    const playlistRef = doc(db, "sharedPlaylists", membership.id);
+    const unsubscribe = onSnapshot(playlistRef, (snapshot) => {
+      if (!snapshot.exists()) {
+        state.memberships = state.memberships.filter((item) => item.id !== membership.id);
+        renderHome();
+        return;
+      }
+      const playlist = snapshot.data();
+      state.memberships = state.memberships.map((item) => item.id === membership.id ? {
+        ...item,
+        playlistName: cleanText(playlist.name, 60) || item.playlistName,
+        inviteCode: cleanText(playlist.joinCode, 4) || item.inviteCode,
+        ownerUid: cleanText(playlist.ownerUid, 128),
+      } : item);
+      renderHome();
+    }, (error) => console.error(error));
+    playlistMetadataUnsubscribers.set(membership.id, unsubscribe);
   });
 }
 
@@ -1169,11 +1248,80 @@ function startMembershipListener() {
   );
   state.membershipUnsubscribe = onSnapshot(membershipsQuery, (snapshot) => {
     state.memberships = sortMemberships(snapshot.docs.map(membershipFromDocument).filter(Boolean));
+    syncMembershipMetadataSubscriptions();
     renderHome();
   }, (error) => {
     console.error(error);
-    homeStatus.textContent = "Your playlists need a quick Firebase setup before they can load.";
+    homeStatus.textContent = "";
   });
+}
+
+function memberNames() {
+  const names = state.activeMembers
+    .map((member) => cleanText(member.displayName, 40))
+    .filter(Boolean);
+  if (names.length) return names;
+  const fallback = cleanText(state.profile?.displayName, 40);
+  return fallback ? [fallback] : [];
+}
+
+function renderPlaylistDetails() {
+  const names = memberNames();
+  playlistMembersSummary.replaceChildren();
+  if (names.length) {
+    playlistMembersSummary.append(document.createTextNode(names.slice(0, 2).join(", ")));
+    if (names.length > 2) {
+      playlistMembersSummary.append(document.createTextNode(", "));
+      const overflow = createElement("button", "member-overflow", `+${names.length - 2}`);
+      overflow.type = "button";
+      overflow.setAttribute("aria-label", `Show all ${names.length} people in this playlist`);
+      overflow.addEventListener("click", () => {
+        memberDialogList.textContent = names.join(", ");
+        if (!memberDialog.open) memberDialog.showModal();
+      });
+      playlistMembersSummary.append(overflow);
+    }
+  }
+
+  const code = cleanText(state.activePlaylist?.inviteCode, 4);
+  playlistCode.textContent = code ? `Code ${code}` : "";
+  if (renamePlaylistForm.hidden) {
+    renamePlaylistName.value = cleanText(state.activePlaylist?.playlistName, 60);
+  }
+}
+
+function subscribeToActivePlaylist() {
+  if (!state.activePlaylist) return;
+  if (state.playlistUnsubscribe) state.playlistUnsubscribe();
+  const playlistId = state.activePlaylist.id;
+  state.playlistUnsubscribe = onSnapshot(doc(db, "sharedPlaylists", playlistId), (snapshot) => {
+    if (!state.activePlaylist || state.activePlaylist.id !== playlistId) return;
+    if (!snapshot.exists()) {
+      toast("This playlist was deleted.", "error");
+      backToHome();
+      return;
+    }
+    const playlist = snapshot.data();
+    state.activePlaylist = {
+      ...state.activePlaylist,
+      playlistName: cleanText(playlist.name, 60) || state.activePlaylist.playlistName,
+      inviteCode: cleanText(playlist.joinCode, 4) || state.activePlaylist.inviteCode,
+      ownerUid: cleanText(playlist.ownerUid, 128),
+    };
+    setMasthead(state.activePlaylist.playlistName || "Shared playlist");
+    renderPlaylistDetails();
+  }, (error) => console.error(error));
+}
+
+function subscribeToActiveMembers() {
+  if (state.memberUnsubscribe) state.memberUnsubscribe();
+  if (!state.activePlaylist) return;
+  const playlistId = state.activePlaylist.id;
+  state.memberUnsubscribe = onSnapshot(collection(db, "sharedPlaylists", playlistId, "members"), (snapshot) => {
+    if (!state.activePlaylist || state.activePlaylist.id !== playlistId) return;
+    state.activeMembers = sortMembers(snapshot.docs.map((document) => ({ id: document.id, ...document.data() })));
+    renderPlaylistDetails();
+  }, (error) => console.error(error));
 }
 
 function subscribeToPlaylistShares() {
@@ -1194,26 +1342,27 @@ function subscribeToPlaylistShares() {
     scheduleFeedPreviewRefresh();
   }, (error) => {
     console.error(error);
-    feedStatus.textContent = "This playlist needs a quick Firebase setup before it can load.";
+    feedStatus.textContent = "";
     feedCount.textContent = "";
   });
 }
 
 function enterPlaylist(membership) {
   if (!state.user || !membership?.id) return;
+  clearPlaylistSubscriptions();
   clearPlaylistDraft();
   state.activePlaylist = membership;
-  playlistTitle.textContent = cleanText(membership.playlistName, 60) || "Untitled playlist";
-  const code = cleanText(membership.inviteCode, 4);
-  playlistMeta.textContent = code ? `Share code ${code}` : "Shared playlist";
-  updateAccountLabels();
   setMasthead(cleanText(membership.playlistName, 60) || "Shared playlist");
   showView("playlist");
+  renderPlaylistDetails();
+  subscribeToActivePlaylist();
+  subscribeToActiveMembers();
   subscribeToPlaylistShares();
 }
 
 function backToHome() {
   clearFeedSubscription();
+  clearPlaylistSubscriptions();
   clearPlaylistDraft();
   state.activePlaylist = null;
   state.shares = [];
@@ -1317,6 +1466,85 @@ async function joinSharedPlaylist(code) {
   };
 }
 
+function setRenamePlaylistOpen(open) {
+  renamePlaylistForm.hidden = !open;
+  renamePlaylistStatus.textContent = "";
+  if (open) {
+    renamePlaylistName.value = cleanText(state.activePlaylist?.playlistName, 60);
+    renamePlaylistName.focus();
+    renamePlaylistName.select();
+  }
+}
+
+async function renameActivePlaylist(name) {
+  if (!state.activePlaylist) throw new Error("Choose a playlist first.");
+  const playlistName = cleanText(name, 60);
+  if (!playlistName) throw new Error("Give it a name first.");
+
+  const playlistRef = doc(db, "sharedPlaylists", state.activePlaylist.id);
+  const codeRef = doc(db, "playlistCodes", state.activePlaylist.inviteCode);
+  const [codeSnapshot, membersSnapshot] = await Promise.all([
+    getDoc(codeRef),
+    getDocs(collection(db, "sharedPlaylists", state.activePlaylist.id, "members")),
+  ]);
+  if (!codeSnapshot.exists() || cleanText(codeSnapshot.data().playlistId, 128) !== state.activePlaylist.id) {
+    throw new Error("That playlist can’t be renamed right now.");
+  }
+  if (membersSnapshot.size + 2 > 450) {
+    throw new Error("This playlist has too many people to rename here.");
+  }
+
+  const batch = writeBatch(db);
+  batch.update(playlistRef, { name: playlistName, updatedAt: serverTimestamp() });
+  batch.update(codeRef, { playlistName });
+  membersSnapshot.docs.forEach((member) => batch.update(member.ref, { playlistName }));
+  await batch.commit();
+
+  state.activePlaylist = { ...state.activePlaylist, playlistName };
+  state.memberships = state.memberships.map((membership) => membership.id === state.activePlaylist.id ? {
+    ...membership,
+    playlistName,
+  } : membership);
+  setMasthead(playlistName);
+  renderPlaylistDetails();
+  renderHome();
+}
+
+async function deleteActivePlaylist() {
+  if (!state.activePlaylist) return;
+  if (!window.confirm("Are you sure you want to delete this playlist?")) return;
+
+  const playlist = state.activePlaylist;
+  const playlistRef = doc(db, "sharedPlaylists", playlist.id);
+  const codeRef = doc(db, "playlistCodes", playlist.inviteCode);
+  deletePlaylistButton.disabled = true;
+  try {
+    const [membersSnapshot, sharesSnapshot, codeSnapshot] = await Promise.all([
+      getDocs(collection(db, "sharedPlaylists", playlist.id, "members")),
+      getDocs(collection(db, "sharedPlaylists", playlist.id, "shares")),
+      getDoc(codeRef),
+    ]);
+    const deleteCount = membersSnapshot.size + sharesSnapshot.size + 1 + (codeSnapshot.exists() ? 1 : 0);
+    if (deleteCount > 450) throw new Error("This playlist has too much history to delete here.");
+
+    const batch = writeBatch(db);
+    sharesSnapshot.docs.forEach((share) => batch.delete(share.ref));
+    membersSnapshot.docs.forEach((member) => batch.delete(member.ref));
+    if (codeSnapshot.exists()) batch.delete(codeRef);
+    batch.delete(playlistRef);
+    await batch.commit();
+
+    state.memberships = state.memberships.filter((membership) => membership.id !== playlist.id);
+    syncMembershipMetadataSubscriptions();
+    toast("Playlist deleted.");
+    backToHome();
+  } catch (error) {
+    console.error(error);
+    toast(error?.message || "Couldn’t delete that playlist. Try again.", "error");
+    deletePlaylistButton.disabled = false;
+  }
+}
+
 async function saveProfile(user, name) {
   const displayName = cleanText(name, 40);
   if (!displayName) throw new Error("Add the name you’d like to use.");
@@ -1338,6 +1566,7 @@ async function saveProfile(user, name) {
 
 async function activateUser(user) {
   clearFeedSubscription();
+  clearPlaylistSubscriptions();
   clearMembershipSubscription();
   state.activePlaylist = null;
   state.shares = [];
@@ -1369,7 +1598,7 @@ async function activateUser(user) {
   } catch (error) {
     console.error(error);
     showAuth("profile");
-    authStatus.textContent = "Your account needs a quick Firebase setup before it can open.";
+    authStatus.textContent = "Your account couldn’t open. Try again.";
   }
 }
 
@@ -1455,6 +1684,7 @@ createPlaylistForm.addEventListener("submit", async (event) => {
     const membership = await createSharedPlaylist(name);
     createPlaylistForm.reset();
     createPlaylistForm.hidden = true;
+    upsertMembership(membership);
     enterPlaylist(membership);
   } catch (error) {
     console.error(error);
@@ -1478,6 +1708,7 @@ joinPlaylistForm.addEventListener("submit", async (event) => {
     const membership = await joinSharedPlaylist(code);
     joinPlaylistForm.reset();
     joinPlaylistForm.hidden = true;
+    upsertMembership(membership);
     enterPlaylist(membership);
   } catch (error) {
     console.error(error);
@@ -1488,6 +1719,30 @@ joinPlaylistForm.addEventListener("submit", async (event) => {
 });
 
 backToPlaylists.addEventListener("click", backToHome);
+
+showRenamePlaylist.addEventListener("click", () => setRenamePlaylistOpen(true));
+cancelRenamePlaylist.addEventListener("click", () => setRenamePlaylistOpen(false));
+
+renamePlaylistForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  renamePlaylistButton.disabled = true;
+  renamePlaylistStatus.textContent = "";
+  try {
+    await renameActivePlaylist(renamePlaylistName.value);
+    setRenamePlaylistOpen(false);
+  } catch (error) {
+    console.error(error);
+    renamePlaylistStatus.textContent = readableError(error, error?.message || "Couldn’t save that name.");
+  } finally {
+    renamePlaylistButton.disabled = false;
+  }
+});
+
+deletePlaylistButton.addEventListener("click", () => {
+  void deleteActivePlaylist();
+});
+
+closeMemberDialog.addEventListener("click", () => memberDialog.close());
 
 void getRedirectResult(auth).catch((error) => {
   console.error(error);

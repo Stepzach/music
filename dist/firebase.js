@@ -17,6 +17,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   getFirestore,
   limit,
   onSnapshot,
@@ -26,6 +27,7 @@ import {
   serverTimestamp,
   setDoc,
   where,
+  writeBatch,
 } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -53,6 +55,7 @@ export {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   getRedirectResult,
   googleProvider,
   limit,
@@ -68,4 +71,5 @@ export {
   signOut,
   updateProfile,
   where,
+  writeBatch,
 };

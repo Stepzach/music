@@ -16,9 +16,9 @@
 // sharedPlaylists/{playlistId}/shares/{shareId}
 //   tracks, senderName, note, senderUid, createdAt
 //
-// Playlist creation writes the playlist, its code, and its owner membership in
-// one transaction. Joining creates only the signed-in person's membership and
-// is checked against the matching invitation document.
+// The playlist document is the source of truth for its name. Its small name
+// copies on invitation and membership documents are kept in sync in the same
+// atomic write so joining and the playlist list stay consistent.
 
 rules_version = '2';
 service cloud.firestore {
@@ -70,6 +70,7 @@ service cloud.firestore {
 
     function isPlaylistMember(playlistId) {
       return isAuthenticated() &&
+        exists(/databases/$(database)/documents/sharedPlaylists/$(playlistId)) &&
         exists(/databases/$(database)/documents/sharedPlaylists/$(playlistId)/members/$(request.auth.uid));
     }
 
@@ -100,7 +101,21 @@ service cloud.firestore {
         validString(data.name, 1, 60) &&
         validString(data.ownerUid, 1, 128) &&
         validJoinCode(data.joinCode) &&
+        data.createdAt is timestamp && data.updatedAt is timestamp;
+    }
+
+    function isValidPlaylistCreate(data) {
+      return isValidPlaylist(data) &&
         timestampIsNow(data.createdAt) && timestampIsNow(data.updatedAt);
+    }
+
+    function isValidPlaylistRename(data) {
+      return isValidPlaylist(data) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'updatedAt']) &&
+        data.ownerUid == resource.data.ownerUid &&
+        data.joinCode == resource.data.joinCode &&
+        data.createdAt == resource.data.createdAt &&
+        timestampIsNow(data.updatedAt);
     }
 
     function isValidPlaylistCode(data) {
@@ -108,7 +123,18 @@ service cloud.firestore {
         hasExactKeys(data, ['playlistId', 'playlistName', 'createdAt']) &&
         validString(data.playlistId, 1, 128) &&
         validString(data.playlistName, 1, 60) &&
-        timestampIsNow(data.createdAt);
+        data.createdAt is timestamp;
+    }
+
+    function isValidPlaylistCodeCreate(data) {
+      return isValidPlaylistCode(data) && timestampIsNow(data.createdAt);
+    }
+
+    function isValidPlaylistCodeRename(data) {
+      return isValidPlaylistCode(data) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['playlistName']) &&
+        data.playlistId == resource.data.playlistId &&
+        data.createdAt == resource.data.createdAt;
     }
 
     function isValidMember(data) {
@@ -119,7 +145,21 @@ service cloud.firestore {
         validString(data.playlistName, 1, 60) &&
         data.role in ['owner', 'member'] &&
         validJoinCode(data.inviteCode) &&
-        timestampIsNow(data.joinedAt);
+        data.joinedAt is timestamp;
+    }
+
+    function isValidMemberCreate(data) {
+      return isValidMember(data) && timestampIsNow(data.joinedAt);
+    }
+
+    function isValidMemberRename(data) {
+      return isValidMember(data) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['playlistName']) &&
+        data.userId == resource.data.userId &&
+        data.displayName == resource.data.displayName &&
+        data.role == resource.data.role &&
+        data.inviteCode == resource.data.inviteCode &&
+        data.joinedAt == resource.data.joinedAt;
     }
 
     function isValidTrack(track) {
@@ -189,23 +229,41 @@ service cloud.firestore {
       allow list: if false;
       allow create: if isAuthenticated() &&
         validJoinCode(code) &&
-        isValidPlaylistCode(request.resource.data) &&
+        isValidPlaylistCodeCreate(request.resource.data) &&
         existsAfter(/databases/$(database)/documents/sharedPlaylists/$(request.resource.data.playlistId)) &&
         getAfter(/databases/$(database)/documents/sharedPlaylists/$(request.resource.data.playlistId)).data.ownerUid == request.auth.uid &&
         getAfter(/databases/$(database)/documents/sharedPlaylists/$(request.resource.data.playlistId)).data.name == request.resource.data.playlistName &&
         getAfter(/databases/$(database)/documents/sharedPlaylists/$(request.resource.data.playlistId)).data.joinCode == code;
-      allow update, delete: if false;
+      allow update: if isAuthenticated() &&
+        validJoinCode(code) &&
+        isValidPlaylistCode(resource.data) &&
+        isValidPlaylistCodeRename(request.resource.data) &&
+        isPlaylistMember(resource.data.playlistId) &&
+        existsAfter(/databases/$(database)/documents/sharedPlaylists/$(resource.data.playlistId)) &&
+        getAfter(/databases/$(database)/documents/sharedPlaylists/$(resource.data.playlistId)).data.name == request.resource.data.playlistName &&
+        getAfter(/databases/$(database)/documents/sharedPlaylists/$(resource.data.playlistId)).data.joinCode == code;
+      allow delete: if isAuthenticated() &&
+        isValidPlaylistCode(resource.data) &&
+        isPlaylistMember(resource.data.playlistId) &&
+        !existsAfter(/databases/$(database)/documents/sharedPlaylists/$(resource.data.playlistId));
     }
 
     match /sharedPlaylists/{playlistId} {
       allow get: if isPlaylistMember(playlistId);
       allow list: if false;
       allow create: if isAuthenticated() &&
-        isValidPlaylist(request.resource.data) &&
+        isValidPlaylistCreate(request.resource.data) &&
         request.resource.data.ownerUid == request.auth.uid &&
         existsAfter(/databases/$(database)/documents/playlistCodes/$(request.resource.data.joinCode)) &&
         existsAfter(/databases/$(database)/documents/sharedPlaylists/$(playlistId)/members/$(request.auth.uid));
-      allow update, delete: if false;
+      allow update: if isPlaylistMember(playlistId) &&
+        isValidPlaylistRename(request.resource.data) &&
+        existsAfter(/databases/$(database)/documents/playlistCodes/$(resource.data.joinCode)) &&
+        getAfter(/databases/$(database)/documents/playlistCodes/$(resource.data.joinCode)).data.playlistId == playlistId &&
+        getAfter(/databases/$(database)/documents/playlistCodes/$(resource.data.joinCode)).data.playlistName == request.resource.data.name;
+      allow delete: if isPlaylistMember(playlistId) &&
+        isValidPlaylist(resource.data) &&
+        !existsAfter(/databases/$(database)/documents/playlistCodes/$(resource.data.joinCode));
 
       match /members/{memberUid} {
         // Own membership reads make the collection-group home query work;
@@ -216,7 +274,7 @@ service cloud.firestore {
           (resource.data.userId == request.auth.uid || isPlaylistMember(playlistId));
         allow create: if isAuthenticated() &&
           memberUid == request.auth.uid &&
-          isValidMember(request.resource.data) &&
+          isValidMemberCreate(request.resource.data) &&
           request.resource.data.userId == request.auth.uid &&
           profileNameMatches(request.resource.data.displayName) &&
           (
@@ -236,9 +294,13 @@ service cloud.firestore {
               get(/databases/$(database)/documents/playlistCodes/$(request.resource.data.inviteCode)).data.playlistName == request.resource.data.playlistName
             )
           );
-        allow update: if false;
-        allow delete: if isAuthenticated() &&
-          memberUid == request.auth.uid && resource.data.role == 'member';
+        allow update: if isPlaylistMember(playlistId) &&
+          isValidMemberRename(request.resource.data) &&
+          existsAfter(/databases/$(database)/documents/sharedPlaylists/$(playlistId)) &&
+          getAfter(/databases/$(database)/documents/sharedPlaylists/$(playlistId)).data.name == request.resource.data.playlistName;
+        // A membership may be removed only as part of a whole-playlist delete.
+        allow delete: if isPlaylistMember(playlistId) &&
+          !existsAfter(/databases/$(database)/documents/sharedPlaylists/$(playlistId));
       }
 
       match /shares/{shareId} {
@@ -249,8 +311,16 @@ service cloud.firestore {
           profileNameMatches(request.resource.data.senderName);
         allow update: if false;
         allow delete: if isPlaylistMember(playlistId) &&
-          (resource.data.senderUid == request.auth.uid || isPlaylistOwner(playlistId));
+          (resource.data.senderUid == request.auth.uid ||
+            isPlaylistOwner(playlistId) ||
+            !existsAfter(/databases/$(database)/documents/sharedPlaylists/$(playlistId)));
       }
+    }
+
+    // A collection-group query needs a recursive rule. It is deliberately
+    // limited to the caller's own membership documents.
+    match /{path=**}/members/{memberUid} {
+      allow list: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }
   }
 }
