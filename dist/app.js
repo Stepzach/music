@@ -93,6 +93,9 @@ const invitePeople = $("#invite-people");
 const inviteDialog = $("#invite-dialog");
 const inviteCode = $("#invite-code");
 const closeInviteDialog = $("#close-invite-dialog");
+const shareInviteLink = $("#share-invite-link");
+const shareInviteLinkLabel = $("#share-invite-link-label");
+const inviteShareStatus = $("#invite-share-status");
 const leavePlaylistDialog = $("#leave-playlist-dialog");
 const closeLeavePlaylistDialog = $("#close-leave-playlist-dialog");
 const cancelLeavePlaylist = $("#cancel-leave-playlist");
@@ -122,6 +125,7 @@ const DISCO_ENGINE_URL = "./disco-engine.js?v=20261119-7";
 const MAX_TRACKS_PER_SHARE = 12;
 const SITE_TITLE = "Resonance";
 const SITE_DESCRIPTION = "Shared playlists for the people you love.";
+const SHARE_PREVIEW_URL = "https://resonance-1bf87.web.app/share";
 
 if ("scrollRestoration" in window.history) {
   window.history.scrollRestoration = "manual";
@@ -2043,10 +2047,50 @@ async function leaveActivePlaylist() {
 function setInviteDialogOpen(open) {
   if (open) {
     if (!cleanText(state.activePlaylist?.inviteCode, 4)) return;
+    inviteShareStatus.textContent = "";
+    shareInviteLinkLabel.textContent = navigator.share ? "Share link" : "Copy link";
     if (!inviteDialog.open) inviteDialog.showModal();
     return;
   }
   if (inviteDialog.open) inviteDialog.close();
+}
+
+function playlistSharePreviewUrl(playlist = state.activePlaylist) {
+  const code = cleanText(playlist?.inviteCode, 4);
+  const name = cleanText(playlist?.playlistName, 60);
+  if (!/^\d{4}$/.test(code) || !name) return "";
+  const url = new URL(SHARE_PREVIEW_URL);
+  url.searchParams.set("playlist", code);
+  url.searchParams.set("name", name);
+  return url.toString();
+}
+
+async function shareActiveInviteLink() {
+  const url = playlistSharePreviewUrl();
+  if (!url) return;
+  const name = cleanText(state.activePlaylist?.playlistName, 60) || "this playlist";
+  inviteShareStatus.textContent = "";
+
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: `${name} · ${SITE_TITLE}`,
+        text: `Join ${name} on ${SITE_TITLE}.`,
+        url,
+      });
+      return;
+    } catch (error) {
+      if (error?.name === "AbortError") return;
+    }
+  }
+
+  try {
+    await navigator.clipboard.writeText(url);
+    inviteShareStatus.textContent = "Copied.";
+  } catch (error) {
+    console.error(error);
+    inviteShareStatus.textContent = "Couldn’t copy the link. Try again.";
+  }
 }
 
 function setLeavePlaylistDialogOpen(open) {
@@ -2381,6 +2425,9 @@ joinPlaylistForm.addEventListener("submit", async (event) => {
 backToPlaylists.addEventListener("click", backToHome);
 
 invitePeople.addEventListener("click", () => setInviteDialogOpen(true));
+shareInviteLink.addEventListener("click", () => {
+  void shareActiveInviteLink();
+});
 leavePlaylist.addEventListener("click", () => setLeavePlaylistDialogOpen(true));
 closeInviteDialog.addEventListener("click", () => setInviteDialogOpen(false));
 closeLeavePlaylistDialog.addEventListener("click", () => setLeavePlaylistDialogOpen(false));

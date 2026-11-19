@@ -1590,6 +1590,16 @@ html[data-theme="dark"] .play-button { color: #151515; }
   line-height: 1.4;
 }
 
+.invite-share-button {
+  width: 100%;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.invite-share-button i { font-size: 12px; }
+.invite-share-status { min-height: 0; margin: 8px 0 0; }
+
 .confirmation-copy {
   margin: 16px 0 0;
   color: var(--muted);
