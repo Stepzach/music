@@ -387,10 +387,19 @@ service cloud.firestore {
           isValidMemberRename(request.resource.data) &&
           existsAfter(/databases/$(database)/documents/sharedPlaylists/$(playlistId)) &&
           getAfter(/databases/$(database)/documents/sharedPlaylists/$(playlistId)).data.name == request.resource.data.playlistName;
-        // Membership documents are removed only in the same batch as deleting
-        // the parent playlist.
-        allow delete: if canManagePlaylist(playlistId) &&
-          !existsAfter(/databases/$(database)/documents/sharedPlaylists/$(playlistId));
+        // A non-owner can leave by deleting only their own membership while
+        // the playlist remains. Owners cannot leave their own playlist; they
+        // must delete it. The final branch preserves atomic full-playlist
+        // cleanup for the existing private collaborative-delete flow.
+        allow delete: if (
+            isAuthenticated() &&
+            memberUid == request.auth.uid &&
+            resource.data.userId == request.auth.uid &&
+            !isPlaylistOwner(playlistId) &&
+            existsAfter(/databases/$(database)/documents/sharedPlaylists/$(playlistId))
+          ) ||
+          (canManagePlaylist(playlistId) &&
+            !existsAfter(/databases/$(database)/documents/sharedPlaylists/$(playlistId)));
       }
 
       match /shares/{shareId} {

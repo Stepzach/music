@@ -85,7 +85,7 @@
       <section id="home-view" class="app-view home-view" aria-label="Your shared playlists" hidden>
         <div class="home-discovery">
           <div class="home-actions">
-            <button id="show-create-playlist" class="quiet-button" type="button">New playlist</button>
+            <button id="show-create-playlist" class="quiet-button" type="button">Create a new playlist</button>
             <button id="show-join-playlist" class="quiet-button" type="button">Have a code? Join a playlist</button>
           </div>
 
@@ -97,13 +97,19 @@
             </label>
             <fieldset class="visibility-choice">
               <legend>Visibility</legend>
-              <label>
+              <label class="visibility-option">
                 <input id="playlist-visibility-private" type="radio" name="playlist-visibility" value="private" checked />
-                <span>Private</span>
+                <span class="visibility-option-copy">
+                  <strong>Private</strong>
+                  <small>Only you and your friends</small>
+                </span>
               </label>
-              <label>
+              <label class="visibility-option">
                 <input id="playlist-visibility-public" type="radio" name="playlist-visibility" value="public" />
-                <span>Public</span>
+                <span class="visibility-option-copy">
+                  <strong>Public</strong>
+                  <small>Anyone can view and contribute</small>
+                </span>
               </label>
             </fieldset>
             <button id="create-playlist-button" class="share-button" type="submit">Create</button>
@@ -151,19 +157,20 @@
         <div class="playlist-details" aria-label="Playlist details">
           <div class="playlist-members">
             <div id="playlist-members-summary" class="playlist-members-summary" aria-live="polite"></div>
+            <button id="leave-playlist" class="leave-playlist text-action compact" type="button" hidden>Leave playlist</button>
             <button id="invite-people" class="invite-people text-action compact" type="button"><span aria-hidden="true">+</span> Add people</button>
           </div>
           <button id="open-playlist-settings" class="text-action compact playlist-settings-trigger" type="button">Edit playlist</button>
         </div>
 
-        <section id="join-to-share" class="join-to-share" aria-live="polite" hidden>
-          <p>Join to share a song</p>
-          <button id="join-public-playlist" class="quiet-button" type="button">Join</button>
-          <p id="join-public-playlist-status" class="form-status" aria-live="polite"></p>
-        </section>
-
         <section class="composer" aria-labelledby="share-title">
           <h3 id="share-title" class="composer-title">Share a song</h3>
+
+          <section id="join-to-share" class="join-to-share" aria-live="polite" hidden>
+            <p>Join to share a song</p>
+            <button id="join-public-playlist" class="quiet-button" type="button">Join</button>
+            <p id="join-public-playlist-status" class="form-status" aria-live="polite"></p>
+          </section>
 
           <div id="share-content" class="composer-content">
             <div class="song-picker">
@@ -218,7 +225,7 @@
             </div>
             <p class="invite-label">Playlist code</p>
             <p id="invite-code" class="invite-code"></p>
-            <p class="invite-copy">From All playlists, tap Join one and enter this code.</p>
+            <p class="invite-copy">Share this website along with this code to your friends!</p>
           </div>
         </dialog>
 
@@ -263,6 +270,6 @@
 
     <audio id="preview-audio" preload="none"></audio>
     <div id="toast-root" class="toast-root" aria-live="polite" aria-atomic="true"></div>
-    <script type="module" src="./app.js?v=20261119-7"></script>
+    <script type="module" src="./app.js?v=20261119-8"></script>
   </body>
 </html>

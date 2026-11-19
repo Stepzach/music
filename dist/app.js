@@ -26,7 +26,7 @@ import {
   updateProfile,
   where,
   writeBatch,
-} from "./firebase.js?v=20261119-7";
+} from "./firebase.js?v=20261119-8";
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -37,6 +37,7 @@ const searchResults = $("#search-results");
 const selectedTrack = $("#selected-track");
 const shareForm = $("#share-form");
 const composer = $(".composer");
+const shareContent = $("#share-content");
 const shareButton = $("#share-button");
 const shareStatus = $("#share-status");
 const noteInput = $("#song-note");
@@ -90,6 +91,7 @@ const joinPlaylistButton = $("#join-playlist-button");
 const joinPlaylistStatus = $("#join-playlist-status");
 const backToPlaylists = $("#back-to-playlists");
 const playlistMembersSummary = $("#playlist-members-summary");
+const leavePlaylist = $("#leave-playlist");
 const invitePeople = $("#invite-people");
 const inviteDialog = $("#invite-dialog");
 const inviteCode = $("#invite-code");
@@ -1195,9 +1197,11 @@ function clearPlaylistSubscriptions() {
   state.memberUnsubscribe = null;
   state.playlistUnsubscribe = null;
   state.activeMembers = [];
+  state.shares = [];
   joinToShare.hidden = true;
   joinPublicPlaylistStatus.textContent = "";
   composer.hidden = false;
+  shareContent.hidden = false;
   renamePlaylistStatus.textContent = "";
   if (memberDialog.open) memberDialog.close();
   if (inviteDialog.open) inviteDialog.close();
@@ -1454,14 +1458,28 @@ function startCommunityListener() {
 
 function memberNames() {
   if (!isActivePlaylistMember() && !isPublicPlaylist(state.activePlaylist)) return [];
-  const names = state.activeMembers
-    .map((member) => {
-      if (member.userId === state.user?.uid) {
-        return cleanText(state.profile?.displayName, 40) || cleanText(member.displayName, 40);
-      }
-      return cleanText(member.displayName, 40);
-    })
-    .filter(Boolean);
+  const contributors = new Map();
+  const addContributor = (userId, displayName) => {
+    const name = cleanText(displayName, 40);
+    if (!name) return;
+    const id = cleanText(userId, 128);
+    const key = id ? `user:${id}` : `name:${name.toLocaleLowerCase()}`;
+    if (!contributors.has(key)) contributors.set(key, name);
+  };
+
+  state.activeMembers.forEach((member) => {
+    const memberId = cleanText(member.userId, 128);
+    const displayName = memberId === state.user?.uid
+      ? cleanText(state.profile?.displayName, 40) || cleanText(member.displayName, 40)
+      : cleanText(member.displayName, 40);
+    addContributor(memberId, displayName);
+  });
+
+  // A person who leaves stays credited only while one of their submissions is
+  // still on the playlist. Active member order remains first.
+  state.shares.forEach((share) => addContributor(share.senderUid, share.senderName));
+
+  const names = [...contributors.values()];
   if (names.length) return names;
   if (!isActivePlaylistMember()) return [];
   const fallback = cleanText(state.profile?.displayName, 40);
@@ -1498,9 +1516,12 @@ function renderPlaylistDetails() {
   invitePeople.disabled = !isMember || !code;
   invitePeople.setAttribute("aria-label", isMember && code ? "Add people to this playlist" : "No invite code available");
   inviteCode.textContent = code || "—";
+  leavePlaylist.hidden = !isMember || isOwner;
   openPlaylistSettings.hidden = !canManage;
-  joinToShare.hidden = !(isPublic && !isMember);
-  composer.hidden = isPublic && !isMember;
+  const shouldJoinToShare = isPublic && !isMember;
+  joinToShare.hidden = !shouldJoinToShare;
+  composer.hidden = false;
+  shareContent.hidden = shouldJoinToShare;
   if (!playlistSettingsDialog.open) {
     renamePlaylistName.value = cleanText(state.activePlaylist?.playlistName, 60);
   }
@@ -1561,6 +1582,7 @@ function subscribeToPlaylistShares() {
   );
   state.feedUnsubscribe = onSnapshot(sharesQuery, (snapshot) => {
     state.shares = snapshot.docs.map((document) => ({ id: document.id, ...document.data() }));
+    renderPlaylistDetails();
     renderFeed();
     refreshFeedPreviews();
     refreshAppleMusicLinks();
@@ -1835,6 +1857,25 @@ async function joinActivePublicPlaylist() {
     joinPublicPlaylistStatus.textContent = readableError(error, error?.message || "Couldn’t join that playlist.");
   } finally {
     joinPublicPlaylistButton.disabled = false;
+  }
+}
+
+async function leaveActivePlaylist() {
+  if (!state.user || !state.activePlaylist || !isActivePlaylistMember() || isActivePlaylistOwner()) return;
+  if (!window.confirm("Leave this playlist?")) return;
+
+  const playlist = state.activePlaylist;
+  leavePlaylist.disabled = true;
+  try {
+    await deleteDoc(doc(db, "sharedPlaylists", playlist.id, "members", state.user.uid));
+    state.memberships = state.memberships.filter((membership) => membership.id !== playlist.id);
+    syncMembershipMetadataSubscriptions();
+    toast("Left playlist.");
+    backToHome();
+  } catch (error) {
+    console.error(error);
+    toast("Couldn’t leave this playlist. Try again.", "error");
+    leavePlaylist.disabled = false;
   }
 }
 
@@ -2174,6 +2215,9 @@ joinPlaylistForm.addEventListener("submit", async (event) => {
 backToPlaylists.addEventListener("click", backToHome);
 
 invitePeople.addEventListener("click", () => setInviteDialogOpen(true));
+leavePlaylist.addEventListener("click", () => {
+  void leaveActivePlaylist();
+});
 closeInviteDialog.addEventListener("click", () => setInviteDialogOpen(false));
 openPlaylistSettings.addEventListener("click", () => setPlaylistSettingsOpen(true));
 closePlaylistSettings.addEventListener("click", () => setPlaylistSettingsOpen(false));
