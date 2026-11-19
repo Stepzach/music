@@ -1,16 +1,28 @@
 import {
   addDoc,
+  auth,
   collection,
+  collectionGroup,
+  createUserWithEmailAndPassword,
   db,
   deleteDoc,
   doc,
-  ensureAnonymousUser,
-  getCurrentUser,
+  getDoc,
+  getRedirectResult,
+  googleProvider,
   limit,
+  onAuthStateChanged,
   onSnapshot,
   orderBy,
   query,
+  runTransaction,
   serverTimestamp,
+  setDoc,
+  signInWithEmailAndPassword,
+  signInWithRedirect,
+  signOut,
+  updateProfile,
+  where,
 } from "./firebase.js";
 
 const $ = (selector) => document.querySelector(selector);
@@ -23,7 +35,6 @@ const selectedTrack = $("#selected-track");
 const shareForm = $("#share-form");
 const shareButton = $("#share-button");
 const shareStatus = $("#share-status");
-const senderNameInput = $("#sender-name");
 const noteInput = $("#song-note");
 const feedStatus = $("#feed-status");
 const feedList = $("#feed-list");
@@ -31,6 +42,44 @@ const feedCount = $("#feed-count");
 const toastRoot = $("#toast-root");
 const themeToggle = $("#theme-toggle");
 const themeColor = $("meta[name='theme-color']");
+const mastheadTitle = $("#masthead-title");
+const mastheadTagline = $("#masthead-tagline");
+const authView = $("#auth-view");
+const homeView = $("#home-view");
+const playlistView = $("#playlist-view");
+const authForm = $("#auth-form");
+const authTitle = $("#auth-title");
+const authSubtitle = $("#auth-subtitle");
+const authNameRow = $("#auth-name-row");
+const authNameInput = $("#auth-name");
+const authEmailRow = $("#auth-email-row");
+const authEmailInput = $("#auth-email");
+const authPasswordRow = $("#auth-password-row");
+const authPasswordInput = $("#auth-password");
+const authSubmit = $("#auth-submit");
+const authStatus = $("#auth-status");
+const authDivider = $("#auth-divider");
+const authSwitch = $("#auth-switch");
+const googleSignInButton = $("#google-sign-in");
+const homeAccountName = $("#home-account-name");
+const playlistAccountName = $("#playlist-account-name");
+const homeSignOut = $("#home-sign-out");
+const playlistSignOut = $("#playlist-sign-out");
+const playlistList = $("#playlist-list");
+const homeStatus = $("#home-status");
+const showCreatePlaylist = $("#show-create-playlist");
+const showJoinPlaylist = $("#show-join-playlist");
+const createPlaylistForm = $("#create-playlist-form");
+const createPlaylistName = $("#new-playlist-name");
+const createPlaylistButton = $("#create-playlist-button");
+const createPlaylistStatus = $("#create-playlist-status");
+const joinPlaylistForm = $("#join-playlist-form");
+const joinCodeInput = $("#join-code");
+const joinPlaylistButton = $("#join-playlist-button");
+const joinPlaylistStatus = $("#join-playlist-status");
+const backToPlaylists = $("#back-to-playlists");
+const playlistTitle = $("#playlist-title");
+const playlistMeta = $("#playlist-meta");
 const DISCO_ENGINE_URL = "./disco-engine.js";
 const MAX_TRACKS_PER_SHARE = 12;
 const THEME_OVERRIDE_STORAGE_KEY = "resonance-theme-override";
@@ -47,7 +96,13 @@ const state = {
   currentPreviewUrl: "",
   discoPartyOn: false,
   shares: [],
-  ownerUid: "",
+  user: null,
+  profile: null,
+  memberships: [],
+  activePlaylist: null,
+  authMode: "signUp",
+  membershipUnsubscribe: null,
+  feedUnsubscribe: null,
 };
 const deezerPreviewCache = new Map();
 const deezerPreviewRequests = new Map();
@@ -563,31 +618,24 @@ searchInput.addEventListener("keydown", (event) => {
     searchStatus.textContent = "";
   }
 });
-function preferredName() {
-  try { return localStorage.getItem("resonance-name") || ""; } catch { return ""; }
-}
-
-function rememberName(value) {
-  try { localStorage.setItem("resonance-name", value); } catch { /* Local storage is optional. */ }
-}
-
-senderNameInput.value = preferredName();
 
 shareForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (!state.user || !state.profile || !state.activePlaylist) {
+    shareStatus.textContent = "Choose a playlist first.";
+    return;
+  }
   if (!state.selectedTracks.length) {
     shareStatus.textContent = "Choose a song first.";
     searchInput.focus();
     return;
   }
 
-  const senderName = cleanText(senderNameInput.value, 40) || "someone";
+  const senderName = cleanText(state.profile.displayName, 40) || "someone";
   const note = cleanText(noteInput.value, 280);
   shareButton.disabled = true;
   shareStatus.textContent = "Uploading…";
   try {
-    const owner = await ensureAnonymousUser();
-    state.ownerUid = owner.uid;
     await Promise.all(state.selectedTracks.map(async (track) => {
       const [previewUrl, appleUrl] = await Promise.all([
         refreshDeezerPreview(track),
@@ -596,14 +644,13 @@ shareForm.addEventListener("submit", async (event) => {
       if (previewUrl) track.previewUrl = previewUrl;
       if (appleUrl) track.appleUrl = appleUrl;
     }));
-    await addDoc(collection(db, "shares"), {
+    await addDoc(collection(db, "sharedPlaylists", state.activePlaylist.id, "shares"), {
       tracks: state.selectedTracks,
       senderName,
       note,
-      ownerUid: state.ownerUid,
+      senderUid: state.user.uid,
       createdAt: serverTimestamp(),
     });
-    rememberName(senderNameInput.value ? senderName : "");
     if (state.currentPlaybackKey?.startsWith("draft:")) stopPlayback();
     noteInput.value = "";
     state.selectedTracks = [];
@@ -729,12 +776,15 @@ function providerUrl(track, provider) {
 }
 
 async function deleteShare(share, button) {
-  if (!state.ownerUid || cleanText(share.ownerUid, 128) !== state.ownerUid) return;
+  if (!state.user || !state.activePlaylist) return;
+  const canDelete = cleanText(share.senderUid, 128) === state.user.uid
+    || state.activePlaylist.role === "owner";
+  if (!canDelete) return;
   if (!window.confirm("Are you sure you want to delete?")) return;
 
   button.disabled = true;
   try {
-    await deleteDoc(doc(db, "shares", share.id));
+    await deleteDoc(doc(db, "sharedPlaylists", state.activePlaylist.id, "shares", share.id));
     toast("Deleted.");
   } catch (error) {
     button.disabled = false;
@@ -882,7 +932,9 @@ function renderShare(share) {
   });
   metaActions.append(links);
 
-  if (state.ownerUid && cleanText(share.ownerUid, 128) === state.ownerUid) {
+  const canDelete = state.user && state.activePlaylist
+    && (cleanText(share.senderUid, 128) === state.user.uid || state.activePlaylist.role === "owner");
+  if (canDelete) {
     const remove = createElement("button", "delete-share", "×");
     remove.type = "button";
     remove.setAttribute("aria-label", "Delete this share");
@@ -977,23 +1029,474 @@ function scheduleFeedPreviewRefresh() {
   }, DEEZER_PREVIEW_REFRESH_MS);
 }
 
-void getCurrentUser().then((user) => {
-  if (!user) return;
-  state.ownerUid = user.uid;
-  renderFeed();
-}).catch((error) => {
-  console.warn("Couldn’t restore this browser’s posting identity.", error);
+function setMasthead(tagline) {
+  mastheadTitle.textContent = "resonance";
+  mastheadTagline.textContent = tagline;
+}
+
+function showView(name) {
+  authView.hidden = name !== "auth";
+  homeView.hidden = name !== "home";
+  playlistView.hidden = name !== "playlist";
+}
+
+function readableError(error, fallback = "Something went wrong. Try again.") {
+  const code = String(error?.code || "");
+  const messages = {
+    "auth/email-already-in-use": "That email already has an account. Try signing in.",
+    "auth/invalid-credential": "That email or password isn’t right.",
+    "auth/invalid-email": "Enter a valid email address.",
+    "auth/weak-password": "Use at least 6 characters for your password.",
+    "auth/operation-not-allowed": "This sign-in option needs a quick Firebase setup.",
+    "auth/unauthorized-domain": "Google sign-in needs this site added to Firebase first.",
+    "permission-denied": "You don’t have access to that yet.",
+  };
+  return messages[code] || fallback;
+}
+
+function updateAccountLabels() {
+  const name = cleanText(state.profile?.displayName, 40);
+  homeAccountName.textContent = name;
+  playlistAccountName.textContent = name;
+}
+
+function showAuth(mode = "signUp") {
+  state.authMode = mode;
+  const isSignIn = mode === "signIn";
+  const isProfile = mode === "profile";
+
+  authNameRow.hidden = isSignIn;
+  authEmailRow.hidden = isProfile;
+  authPasswordRow.hidden = isProfile;
+  authDivider.hidden = isProfile;
+  googleSignInButton.hidden = isProfile;
+  authSwitch.hidden = isProfile;
+  authNameInput.required = !isSignIn;
+  authEmailInput.required = !isProfile;
+  authPasswordInput.required = !isProfile;
+  authPasswordInput.autocomplete = isSignIn ? "current-password" : "new-password";
+  authStatus.textContent = "";
+
+  if (isProfile) {
+    authTitle.textContent = "One small thing";
+    authSubtitle.textContent = "What should your friends call you?";
+    authSubmit.textContent = "Continue";
+    authNameInput.value = authNameInput.value || cleanText(state.user?.displayName, 40);
+  } else if (isSignIn) {
+    authTitle.textContent = "Welcome back";
+    authSubtitle.textContent = "Pick up where you left off.";
+    authSubmit.textContent = "Sign in";
+    authSwitch.textContent = "New here? Create an account";
+  } else {
+    authTitle.textContent = "Welcome";
+    authSubtitle.textContent = "Make a space for the songs you share.";
+    authSubmit.textContent = "Create account";
+    authSwitch.textContent = "Already have an account? Sign in";
+  }
+
+  setMasthead("Shared playlists");
+  showView("auth");
+}
+
+function clearFeedSubscription() {
+  if (state.feedUnsubscribe) state.feedUnsubscribe();
+  state.feedUnsubscribe = null;
+}
+
+function clearMembershipSubscription() {
+  if (state.membershipUnsubscribe) state.membershipUnsubscribe();
+  state.membershipUnsubscribe = null;
+}
+
+function clearPlaylistDraft() {
+  stopPlayback();
+  state.selectedTracks = [];
+  clearSearchQuery();
+  noteInput.value = "";
+  renderSelectedTracks();
+}
+
+function membershipFromDocument(document) {
+  const playlistRef = document.ref.parent.parent;
+  if (!playlistRef) return null;
+  return { id: playlistRef.id, ...document.data() };
+}
+
+function sortMemberships(items) {
+  return items.sort((left, right) => {
+    const leftTime = timestampValue(left.joinedAt)?.getTime() || 0;
+    const rightTime = timestampValue(right.joinedAt)?.getTime() || 0;
+    return rightTime - leftTime;
+  });
+}
+
+function renderHome() {
+  playlistList.replaceChildren();
+  homeStatus.textContent = "";
+  updateAccountLabels();
+
+  if (!state.memberships.length) {
+    playlistList.append(createElement("p", "empty-feed", "Nothing here yet. Make one or join one."));
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  state.memberships.forEach((membership) => {
+    const item = createElement("button", "playlist-card");
+    item.type = "button";
+    item.append(
+      (() => {
+        const copy = createElement("span", "playlist-card-copy");
+        copy.append(
+          createElement("strong", "", cleanText(membership.playlistName, 60) || "Untitled playlist"),
+          createElement("span", "", `code ${cleanText(membership.inviteCode, 4) || "—"}`)
+        );
+        return copy;
+      })()
+    );
+    item.addEventListener("click", () => enterPlaylist(membership));
+    fragment.append(item);
+  });
+  playlistList.append(fragment);
+}
+
+function startMembershipListener() {
+  if (!state.user) return;
+  clearMembershipSubscription();
+  const membershipsQuery = query(
+    collectionGroup(db, "members"),
+    where("userId", "==", state.user.uid)
+  );
+  state.membershipUnsubscribe = onSnapshot(membershipsQuery, (snapshot) => {
+    state.memberships = sortMemberships(snapshot.docs.map(membershipFromDocument).filter(Boolean));
+    renderHome();
+  }, (error) => {
+    console.error(error);
+    homeStatus.textContent = "Your playlists need a quick Firebase setup before they can load.";
+  });
+}
+
+function subscribeToPlaylistShares() {
+  clearFeedSubscription();
+  if (!state.activePlaylist) return;
+  feedStatus.textContent = "Loading songs…";
+  feedCount.textContent = "";
+  const sharesQuery = query(
+    collection(db, "sharedPlaylists", state.activePlaylist.id, "shares"),
+    orderBy("createdAt", "desc"),
+    limit(60)
+  );
+  state.feedUnsubscribe = onSnapshot(sharesQuery, (snapshot) => {
+    state.shares = snapshot.docs.map((document) => ({ id: document.id, ...document.data() }));
+    renderFeed();
+    refreshFeedPreviews();
+    refreshAppleMusicLinks();
+    scheduleFeedPreviewRefresh();
+  }, (error) => {
+    console.error(error);
+    feedStatus.textContent = "This playlist needs a quick Firebase setup before it can load.";
+    feedCount.textContent = "";
+  });
+}
+
+function enterPlaylist(membership) {
+  if (!state.user || !membership?.id) return;
+  clearPlaylistDraft();
+  state.activePlaylist = membership;
+  playlistTitle.textContent = cleanText(membership.playlistName, 60) || "Untitled playlist";
+  const code = cleanText(membership.inviteCode, 4);
+  playlistMeta.textContent = code ? `Share code ${code}` : "Shared playlist";
+  updateAccountLabels();
+  setMasthead(cleanText(membership.playlistName, 60) || "Shared playlist");
+  showView("playlist");
+  subscribeToPlaylistShares();
+}
+
+function backToHome() {
+  clearFeedSubscription();
+  clearPlaylistDraft();
+  state.activePlaylist = null;
+  state.shares = [];
+  setMasthead("Your shared playlists");
+  showView("home");
+  renderHome();
+}
+
+function randomJoinCode() {
+  const values = new Uint32Array(1);
+  if (window.crypto?.getRandomValues) window.crypto.getRandomValues(values);
+  else values[0] = Math.floor(Math.random() * 10000);
+  return String(values[0] % 10000).padStart(4, "0");
+}
+
+function codeTakenError() {
+  const error = new Error("That code was taken.");
+  error.code = "resonance/code-taken";
+  return error;
+}
+
+async function createSharedPlaylist(name) {
+  if (!state.user || !state.profile) throw new Error("Sign in first.");
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const code = randomJoinCode();
+    const playlistRef = doc(collection(db, "sharedPlaylists"));
+    const codeRef = doc(db, "playlistCodes", code);
+    const memberRef = doc(db, "sharedPlaylists", playlistRef.id, "members", state.user.uid);
+    try {
+      await runTransaction(db, async (transaction) => {
+        const existingCode = await transaction.get(codeRef);
+        if (existingCode.exists()) throw codeTakenError();
+        transaction.set(playlistRef, {
+          name,
+          ownerUid: state.user.uid,
+          joinCode: code,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        transaction.set(codeRef, {
+          playlistId: playlistRef.id,
+          playlistName: name,
+          createdAt: serverTimestamp(),
+        });
+        transaction.set(memberRef, {
+          userId: state.user.uid,
+          displayName: state.profile.displayName,
+          playlistName: name,
+          role: "owner",
+          inviteCode: code,
+          joinedAt: serverTimestamp(),
+        });
+      });
+      return {
+        id: playlistRef.id,
+        userId: state.user.uid,
+        displayName: state.profile.displayName,
+        playlistName: name,
+        role: "owner",
+        inviteCode: code,
+      };
+    } catch (error) {
+      if (error?.code === "resonance/code-taken") continue;
+      throw error;
+    }
+  }
+  throw new Error("Couldn’t find a free code. Try again.");
+}
+
+async function joinSharedPlaylist(code) {
+  if (!state.user || !state.profile) throw new Error("Sign in first.");
+  const codeSnapshot = await getDoc(doc(db, "playlistCodes", code));
+  if (!codeSnapshot.exists()) throw new Error("No playlist has that code.");
+
+  const invite = codeSnapshot.data();
+  const playlistId = cleanText(invite.playlistId, 128);
+  const playlistName = cleanText(invite.playlistName, 60);
+  if (!playlistId || !playlistName) throw new Error("That code doesn’t look right.");
+
+  const membershipRef = doc(db, "sharedPlaylists", playlistId, "members", state.user.uid);
+  const existingMembership = await getDoc(membershipRef);
+  if (existingMembership.exists()) {
+    return { id: playlistId, ...existingMembership.data() };
+  }
+
+  await setDoc(membershipRef, {
+    userId: state.user.uid,
+    displayName: state.profile.displayName,
+    playlistName,
+    role: "member",
+    inviteCode: code,
+    joinedAt: serverTimestamp(),
+  });
+  return {
+    id: playlistId,
+    userId: state.user.uid,
+    displayName: state.profile.displayName,
+    playlistName,
+    role: "member",
+    inviteCode: code,
+  };
+}
+
+async function saveProfile(user, name) {
+  const displayName = cleanText(name, 40);
+  if (!displayName) throw new Error("Add the name you’d like to use.");
+  await updateProfile(user, { displayName });
+  await setDoc(doc(db, "profiles", user.uid), {
+    uid: user.uid,
+    displayName,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  state.user = user;
+  state.profile = { displayName };
+  updateAccountLabels();
+  startMembershipListener();
+  setMasthead("Your shared playlists");
+  showView("home");
+  renderHome();
+}
+
+async function activateUser(user) {
+  clearFeedSubscription();
+  clearMembershipSubscription();
+  state.activePlaylist = null;
+  state.shares = [];
+  state.memberships = [];
+  state.user = user || null;
+  state.profile = null;
+
+  if (!user) {
+    showAuth("signUp");
+    return;
+  }
+  if (user.isAnonymous) {
+    await signOut(auth).catch(() => undefined);
+    return;
+  }
+
+  try {
+    const profileSnapshot = await getDoc(doc(db, "profiles", user.uid));
+    if (!profileSnapshot.exists()) {
+      showAuth("profile");
+      return;
+    }
+    state.profile = profileSnapshot.data();
+    updateAccountLabels();
+    startMembershipListener();
+    setMasthead("Your shared playlists");
+    showView("home");
+    renderHome();
+  } catch (error) {
+    console.error(error);
+    showAuth("profile");
+    authStatus.textContent = "Your account needs a quick Firebase setup before it can open.";
+  }
+}
+
+authSwitch.addEventListener("click", () => showAuth(state.authMode === "signIn" ? "signUp" : "signIn"));
+
+authForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  authSubmit.disabled = true;
+  authStatus.textContent = "";
+  try {
+    if (state.authMode === "profile") {
+      if (!state.user) throw new Error("Sign in first.");
+      await saveProfile(state.user, authNameInput.value);
+    } else if (state.authMode === "signIn") {
+      await signInWithEmailAndPassword(auth, cleanText(authEmailInput.value, 120), authPasswordInput.value);
+    } else {
+      const displayName = cleanText(authNameInput.value, 40);
+      if (!displayName) throw new Error("Add the name you’d like to use.");
+      const credential = await createUserWithEmailAndPassword(auth, cleanText(authEmailInput.value, 120), authPasswordInput.value);
+      await saveProfile(credential.user, displayName);
+    }
+  } catch (error) {
+    console.error(error);
+    authStatus.textContent = readableError(error, error?.message || "Couldn’t continue. Try again.");
+  } finally {
+    authSubmit.disabled = false;
+  }
 });
 
-const feedQuery = query(collection(db, "shares"), orderBy("createdAt", "desc"), limit(60));
-onSnapshot(feedQuery, (snapshot) => {
-  state.shares = snapshot.docs.map((document) => ({ id: document.id, ...document.data() }));
-  renderFeed();
-  refreshFeedPreviews();
-  refreshAppleMusicLinks();
-  scheduleFeedPreviewRefresh();
-}, (error) => {
-  console.error(error);
-  feedStatus.textContent = "The wall needs a quick Firebase setup before it can load.";
-  feedCount.textContent = "";
+googleSignInButton.addEventListener("click", async () => {
+  googleSignInButton.disabled = true;
+  authStatus.textContent = "Taking you to Google…";
+  try {
+    await signInWithRedirect(auth, googleProvider);
+  } catch (error) {
+    console.error(error);
+    authStatus.textContent = readableError(error);
+    googleSignInButton.disabled = false;
+  }
 });
+
+async function handleSignOut() {
+  try {
+    await signOut(auth);
+  } catch (error) {
+    console.error(error);
+    toast("Couldn’t sign out. Try again.", "error");
+  }
+}
+
+homeSignOut.addEventListener("click", handleSignOut);
+playlistSignOut.addEventListener("click", handleSignOut);
+
+showCreatePlaylist.addEventListener("click", () => {
+  createPlaylistForm.hidden = !createPlaylistForm.hidden;
+  joinPlaylistForm.hidden = true;
+  createPlaylistStatus.textContent = "";
+  if (!createPlaylistForm.hidden) createPlaylistName.focus();
+});
+
+showJoinPlaylist.addEventListener("click", () => {
+  joinPlaylistForm.hidden = !joinPlaylistForm.hidden;
+  createPlaylistForm.hidden = true;
+  joinPlaylistStatus.textContent = "";
+  if (!joinPlaylistForm.hidden) joinCodeInput.focus();
+});
+
+joinCodeInput.addEventListener("input", () => {
+  joinCodeInput.value = joinCodeInput.value.replace(/\D/g, "").slice(0, 4);
+});
+
+createPlaylistForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const name = cleanText(createPlaylistName.value, 60);
+  if (!name) {
+    createPlaylistStatus.textContent = "Give it a name first.";
+    createPlaylistName.focus();
+    return;
+  }
+  createPlaylistButton.disabled = true;
+  createPlaylistStatus.textContent = "Making it…";
+  try {
+    const membership = await createSharedPlaylist(name);
+    createPlaylistForm.reset();
+    createPlaylistForm.hidden = true;
+    enterPlaylist(membership);
+  } catch (error) {
+    console.error(error);
+    createPlaylistStatus.textContent = readableError(error, error?.message || "Couldn’t make that playlist.");
+  } finally {
+    createPlaylistButton.disabled = false;
+  }
+});
+
+joinPlaylistForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const code = cleanText(joinCodeInput.value, 4);
+  if (!/^\d{4}$/.test(code)) {
+    joinPlaylistStatus.textContent = "Enter all four digits.";
+    joinCodeInput.focus();
+    return;
+  }
+  joinPlaylistButton.disabled = true;
+  joinPlaylistStatus.textContent = "Joining…";
+  try {
+    const membership = await joinSharedPlaylist(code);
+    joinPlaylistForm.reset();
+    joinPlaylistForm.hidden = true;
+    enterPlaylist(membership);
+  } catch (error) {
+    console.error(error);
+    joinPlaylistStatus.textContent = readableError(error, error?.message || "Couldn’t join that playlist.");
+  } finally {
+    joinPlaylistButton.disabled = false;
+  }
+});
+
+backToPlaylists.addEventListener("click", backToHome);
+
+void getRedirectResult(auth).catch((error) => {
+  console.error(error);
+  showAuth("signUp");
+  authStatus.textContent = readableError(error);
+});
+
+onAuthStateChanged(auth, (user) => {
+  void activateUser(user);
+});
+
+showAuth("signUp");

@@ -1,19 +1,31 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-app.js";
 import {
+  GoogleAuthProvider,
+  createUserWithEmailAndPassword,
   getAuth,
-  signInAnonymously,
+  getRedirectResult,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signInWithRedirect,
+  signOut,
+  updateProfile,
 } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-auth.js";
 import {
   addDoc,
   collection,
+  collectionGroup,
   deleteDoc,
   doc,
+  getDoc,
   getFirestore,
   limit,
   onSnapshot,
   orderBy,
   query,
+  runTransaction,
   serverTimestamp,
+  setDoc,
+  where,
 } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -28,39 +40,32 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-let anonymousSignIn;
-
-async function getCurrentUser() {
-  if (typeof auth.authStateReady === "function") await auth.authStateReady();
-  return auth.currentUser;
-}
-
-async function ensureAnonymousUser() {
-  const currentUser = await getCurrentUser();
-  if (currentUser) return currentUser;
-
-  if (!anonymousSignIn) {
-    anonymousSignIn = signInAnonymously(auth)
-      .then(({ user }) => user)
-      .catch((error) => {
-        anonymousSignIn = null;
-        throw error;
-      });
-  }
-  return anonymousSignIn;
-}
+const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: "select_account" });
 
 export {
   addDoc,
+  auth,
   collection,
+  collectionGroup,
+  createUserWithEmailAndPassword,
   db,
   deleteDoc,
   doc,
-  ensureAnonymousUser,
-  getCurrentUser,
+  getDoc,
+  getRedirectResult,
+  googleProvider,
   limit,
+  onAuthStateChanged,
   onSnapshot,
   orderBy,
   query,
+  runTransaction,
   serverTimestamp,
+  setDoc,
+  signInWithEmailAndPassword,
+  signInWithRedirect,
+  signOut,
+  updateProfile,
+  where,
 };

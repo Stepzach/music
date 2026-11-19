@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#ffffff" />
-    <meta name="description" content="Zach &amp; Nono's shared playlist." />
+    <meta name="description" content="Shared playlists for the people you love." />
     <title>Resonance</title>
     <link rel="apple-touch-icon" sizes="180x180" href="./assets/disco-ball-icon.png?v=3" />
     <link rel="icon" type="image/png" href="./assets/disco-ball-icon.png?v=3" />
@@ -23,10 +23,10 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300..700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
-    <link rel="stylesheet" href="./styles.css?v=20261116-8" />
+    <link rel="stylesheet" href="./styles.css?v=20261119-2" />
   </head>
   <body>
-    
+    <a class="skip-link" href="#app-root">Skip to the app</a>
     <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch to dark mode" aria-pressed="false" title="Switch to dark mode" data-theme="light">
       <span class="theme-toggle-track" aria-hidden="true">
         <span class="theme-toggle-option theme-toggle-sun"><i class="fa-solid fa-star"></i></span>
@@ -35,58 +35,131 @@
     </button>
 
     <header class="masthead">
-      <h1 data-disco-target>resonance</h1>
-      <p class="tagline">Zach &amp; Nono's shared playlist</p>
+      <h1 id="masthead-title" data-disco-target>resonance</h1>
+      <p id="masthead-tagline" class="tagline">Shared playlists</p>
     </header>
 
-    <main class="page-shell">
-      <section class="composer" aria-labelledby="share-title">
-        <h2 id="share-title" class="composer-title">Share a song</h2>
+    <main id="app-root" class="page-shell">
+      <section id="auth-view" class="app-view auth-view" aria-labelledby="auth-title">
+        <section class="auth-card">
+          <h2 id="auth-title">Welcome</h2>
+          <p id="auth-subtitle" class="auth-subtitle">Make a space for the songs you share.</p>
 
-        <div id="share-content" class="composer-content">
-          <div class="song-picker">
-            <div class="search-field">
-              <label class="visually-hidden" for="song-search">Search songs</label>
-              <span class="search-icon" aria-hidden="true">⌕</span>
-              <input id="song-search" type="text" inputmode="search" enterkeyhint="search" autocomplete="off" placeholder="Search a song or artist" aria-controls="search-results" />
-            </div>
-            <div id="search-status" class="search-status" aria-live="polite"></div>
-            <div id="search-results" class="search-results" role="listbox" aria-label="Song results"></div>
-          </div>
-
-          <div id="selected-track" class="selected-track" hidden></div>
-
-          <form id="share-form" class="share-form" hidden>
-            <div class="share-fields">
-              <label>
-                <span>Your name <em>optional</em></span>
-                <input id="sender-name" type="text" maxlength="40" autocomplete="name" placeholder="Someone" />
-              </label>
-              <label>
-                <span>A small note <em>optional</em></span>
-                <input id="song-note" type="text" maxlength="280" placeholder="for the walk home" />
-              </label>
-              <button id="share-button" class="share-button" type="submit" disabled>Share</button>
-            </div>
-            <p id="share-status" class="form-status" aria-live="polite"></p>
+          <form id="auth-form" class="form-stack">
+            <label id="auth-name-row">
+              <span>Your name</span>
+              <input id="auth-name" type="text" maxlength="40" autocomplete="name" placeholder="Your name" />
+            </label>
+            <label id="auth-email-row">
+              <span>Email</span>
+              <input id="auth-email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com" required />
+            </label>
+            <label id="auth-password-row">
+              <span>Password</span>
+              <input id="auth-password" type="password" minlength="6" autocomplete="new-password" placeholder="At least 6 characters" required />
+            </label>
+            <button id="auth-submit" class="share-button" type="submit">Create account</button>
+            <p id="auth-status" class="form-status" aria-live="polite"></p>
           </form>
-        </div>
+
+          <div id="auth-divider" class="auth-divider"><span>or</span></div>
+          <button id="google-sign-in" class="quiet-button google-button" type="button"><i class="fa-brands fa-google" aria-hidden="true"></i> Continue with Google</button>
+          <button id="auth-switch" class="text-action" type="button">Already have an account? Sign in</button>
+        </section>
       </section>
 
-      <section id="feed" class="feed" aria-labelledby="feed-title">
-        <div class="section-heading feed-heading">
-          <div>
-            <h2 id="feed-title">Recently shared</h2>
-          </div>
-          <p id="feed-count" class="section-hint"></p>
+      <section id="home-view" class="app-view home-view" aria-labelledby="home-title" hidden>
+        <div class="account-control">
+          <span id="home-account-name"></span>
+          <button id="home-sign-out" class="text-action compact" type="button">Sign out</button>
         </div>
-        <div id="feed-status" class="feed-status" aria-live="polite">Loading songs…</div>
-        <div id="feed-list" class="feed-list"></div>
+
+        <div class="section-heading home-heading">
+          <div><h2 id="home-title">Your playlists</h2></div>
+        </div>
+        <div id="playlist-list" class="playlist-list"></div>
+        <p id="home-status" class="feed-status" aria-live="polite"></p>
+
+        <div class="home-actions">
+          <button id="show-create-playlist" class="quiet-button" type="button">New playlist</button>
+          <button id="show-join-playlist" class="quiet-button" type="button">Join one</button>
+        </div>
+
+        <form id="create-playlist-form" class="inline-form" hidden>
+          <label>
+            <span>Name it</span>
+            <input id="new-playlist-name" type="text" maxlength="60" autocomplete="off" placeholder="Friday night" required />
+          </label>
+          <button id="create-playlist-button" class="share-button" type="submit">Create</button>
+          <p id="create-playlist-status" class="form-status" aria-live="polite"></p>
+        </form>
+
+        <form id="join-playlist-form" class="inline-form join-form" hidden>
+          <label>
+            <span>Four-digit code</span>
+            <input id="join-code" class="code-input" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="4" pattern="[0-9]{4}" placeholder="0000" required />
+          </label>
+          <button id="join-playlist-button" class="share-button" type="submit">Join</button>
+          <p id="join-playlist-status" class="form-status" aria-live="polite"></p>
+        </form>
+      </section>
+
+      <section id="playlist-view" class="app-view playlist-view" aria-labelledby="playlist-title" hidden>
+        <div class="playlist-topbar">
+          <button id="back-to-playlists" class="text-action compact" type="button">All playlists</button>
+          <div class="account-control compact-account">
+            <span id="playlist-account-name"></span>
+            <button id="playlist-sign-out" class="text-action compact" type="button">Sign out</button>
+          </div>
+        </div>
+
+        <div class="playlist-intro">
+          <h2 id="playlist-title">Playlist</h2>
+          <p id="playlist-meta" class="section-hint"></p>
+        </div>
+
+        <section class="composer" aria-labelledby="share-title">
+          <h3 id="share-title" class="composer-title">Share a song</h3>
+
+          <div id="share-content" class="composer-content">
+            <div class="song-picker">
+              <div class="search-field">
+                <label class="visually-hidden" for="song-search">Search songs</label>
+                <span class="search-icon" aria-hidden="true">⌕</span>
+                <input id="song-search" type="text" inputmode="search" enterkeyhint="search" autocomplete="off" placeholder="Search a song or artist" aria-controls="search-results" />
+              </div>
+              <div id="search-status" class="search-status" aria-live="polite"></div>
+              <div id="search-results" class="search-results" role="listbox" aria-label="Song results"></div>
+            </div>
+
+            <div id="selected-track" class="selected-track" hidden></div>
+
+            <form id="share-form" class="share-form" hidden>
+              <div class="playlist-share-fields">
+                <label>
+                  <span>A small note <em>optional</em></span>
+                  <input id="song-note" type="text" maxlength="280" placeholder="for the walk home" />
+                </label>
+                <button id="share-button" class="share-button" type="submit" disabled>Share</button>
+              </div>
+              <p id="share-status" class="form-status" aria-live="polite"></p>
+            </form>
+          </div>
+        </section>
+
+        <section id="feed" class="feed" aria-labelledby="feed-title">
+          <div class="section-heading feed-heading">
+            <div><h2 id="feed-title">Recently shared</h2></div>
+            <p id="feed-count" class="section-hint"></p>
+          </div>
+          <div id="feed-status" class="feed-status" aria-live="polite">Loading songs…</div>
+          <div id="feed-list" class="feed-list"></div>
+        </section>
       </section>
     </main>
 
     <audio id="preview-audio" preload="none"></audio>
     <div id="toast-root" class="toast-root" aria-live="polite" aria-atomic="true"></div>
-    <script type="module" src="./app.js?v=20261116-8"></script>
+    <script type="module" src="./app.js?v=20261119-2"></script>
   </body>
 </html>
