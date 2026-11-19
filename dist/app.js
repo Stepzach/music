@@ -12,7 +12,6 @@ import {
   getDocs,
   getRedirectResult,
   googleProvider,
-  limit,
   onAuthStateChanged,
   onSnapshot,
   orderBy,
@@ -1577,8 +1576,7 @@ function subscribeToPlaylistShares() {
   feedCount.textContent = "";
   const sharesQuery = query(
     collection(db, "sharedPlaylists", state.activePlaylist.id, "shares"),
-    orderBy("createdAt", "desc"),
-    limit(60)
+    orderBy("createdAt", "desc")
   );
   state.feedUnsubscribe = onSnapshot(sharesQuery, (snapshot) => {
     state.shares = snapshot.docs.map((document) => ({ id: document.id, ...document.data() }));
