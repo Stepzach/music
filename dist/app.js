@@ -1262,7 +1262,12 @@ function isActivePlaylistMember() {
 }
 
 function isActivePlaylistOwner() {
-  return Boolean(state.activePlaylist && state.activePlaylist.ownerUid === state.user?.uid);
+  if (!state.activePlaylist || !state.user) return false;
+  // A membership record does not carry ownerUid. Respect its owner role while
+  // the playlist document is still loading so creators never briefly see a
+  // Leave button that the database would (correctly) reject.
+  return state.activePlaylist.ownerUid === state.user.uid
+    || activePlaylistMembership()?.role === "owner";
 }
 
 function canManageActivePlaylist() {
@@ -1583,6 +1588,10 @@ function renderPlaylistDetails() {
   invitePeople.setAttribute("aria-label", isMember && code ? "Add people to this playlist" : "No invite code available");
   inviteCode.textContent = code || "—";
   leavePlaylist.hidden = !isMember || isOwner;
+  // Reset the control whenever a playlist is rendered. Without this, a
+  // successful leave could leave the same shared button disabled on the next
+  // playlist until the page was refreshed.
+  leavePlaylist.disabled = !isMember || isOwner;
   openPlaylistSettings.hidden = !canManage;
   const shouldJoinToShare = isPublic && !isMember;
   joinToShare.hidden = !shouldJoinToShare;
@@ -1927,22 +1936,59 @@ async function joinActivePublicPlaylist() {
 }
 
 async function leaveActivePlaylist() {
-  if (!state.user || !state.activePlaylist || !isActivePlaylistMember() || isActivePlaylistOwner()) return;
+  if (!state.user || !state.activePlaylist) return;
+  if (isActivePlaylistOwner()) {
+    toast("The creator can’t leave this playlist.", "error");
+    return;
+  }
   if (!window.confirm("Leave this playlist?")) return;
 
   const playlist = state.activePlaylist;
+  const membershipRef = doc(db, "sharedPlaylists", playlist.id, "members", state.user.uid);
   leavePlaylist.disabled = true;
   try {
-    await deleteDoc(doc(db, "sharedPlaylists", playlist.id, "members", state.user.uid));
-    state.memberships = state.memberships.filter((membership) => membership.id !== playlist.id);
+    await deleteDoc(membershipRef);
+  } catch (error) {
+    // The live membership listener can be one step behind a leave completed
+    // in another tab. If the row has already gone, treat the request as
+    // complete and return the person to All playlists rather than trapping
+    // them on a stale page.
+    if (error?.code !== "permission-denied") {
+      console.error(error);
+      toast("Couldn’t leave this playlist. Try again.", "error");
+      leavePlaylist.disabled = false;
+      return;
+    }
+
+    try {
+      const membershipSnapshot = await getDoc(membershipRef);
+      if (membershipSnapshot.exists()) {
+        if (membershipSnapshot.data()?.role === "owner") {
+          toast("The creator can’t leave this playlist.", "error");
+        } else {
+          toast("Couldn’t leave this playlist. Try again.", "error");
+        }
+        leavePlaylist.disabled = false;
+        return;
+      }
+    } catch (membershipError) {
+      console.error(membershipError);
+      toast("Couldn’t leave this playlist. Try again.", "error");
+      leavePlaylist.disabled = false;
+      return;
+    }
+  }
+
+  state.memberships = state.memberships.filter((membership) => membership.id !== playlist.id);
+  // Navigate before reconciling background home-list listeners, so that
+  // cleanup can never hold up the promised return to All playlists.
+  backToHome();
+  try {
     syncMembershipMetadataSubscriptions();
-    toast("Left playlist.");
-    backToHome();
   } catch (error) {
     console.error(error);
-    toast("Couldn’t leave this playlist. Try again.", "error");
-    leavePlaylist.disabled = false;
   }
+  toast("Left playlist.");
 }
 
 function setInviteDialogOpen(open) {

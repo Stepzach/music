@@ -1350,9 +1350,36 @@ html[data-theme="dark"] .play-button { color: #151515; }
 
 .member-action-short { display: none; }
 .leave-playlist,
-.invite-people { white-space: nowrap; }
-.invite-people .invite-symbol { margin-right: 2px; font-size: 16px; line-height: 0; }
-.invite-people:disabled { cursor: default; opacity: .42; }
+.invite-people {
+  display: inline-flex;
+  min-height: 31px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 9px;
+  border: 1px solid var(--quiet-control-border);
+  border-radius: 7px;
+  background: var(--quiet-control);
+  color: #151515;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background .16s ease, border-color .16s ease, transform .16s ease, opacity .16s ease;
+}
+
+.leave-playlist:hover:not(:disabled),
+.invite-people:hover:not(:disabled) { border-color: var(--muted); background: var(--quiet-control-hover); }
+
+.leave-playlist:active:not(:disabled),
+.invite-people:active:not(:disabled) { transform: scale(.96); }
+
+.leave-playlist:disabled,
+.invite-people:disabled { cursor: wait; opacity: .55; }
+
+.invite-people .invite-symbol { font-size: 15px; line-height: 1; }
 
 .member-overflow {
   padding: 0;
@@ -1435,10 +1462,10 @@ html[data-theme="dark"] .play-button { color: #151515; }
 }
 
 .member-dialog-creator {
-  padding: 12px 13px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--note-surface);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .member-dialog-creator-name {
@@ -1605,10 +1632,14 @@ html[data-theme="dark"] .play-button { color: #151515; }
   .playlist-members { gap: 6px; }
   .playlist-members { flex-wrap: nowrap; }
   .playlist-members-summary { flex-basis: auto; }
-  .leave-playlist,
-  .invite-people,
+  .leave-playlist.text-action,
+  .invite-people.text-action {
+    min-height: 29px;
+    padding: 0 8px;
+    font-size: 12px;
+  }
   .playlist-settings-trigger { font-size: 12px; }
   .member-action-long { display: none; }
   .member-action-short { display: inline; }
-  .invite-people .invite-symbol { margin-right: 1px; font-size: 15px; }
+  .invite-people .invite-symbol { font-size: 14px; }
 }
