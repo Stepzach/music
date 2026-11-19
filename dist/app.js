@@ -125,7 +125,7 @@ const DISCO_ENGINE_URL = "./disco-engine.js?v=20261119-7";
 const MAX_TRACKS_PER_SHARE = 12;
 const SITE_TITLE = "Resonance";
 const SITE_DESCRIPTION = "Shared playlists for the people you love.";
-const SHARE_PREVIEW_URL = "https://resonance-1bf87.web.app/share";
+const GITHUB_APP_URL = "https://stepzach.github.io/music/";
 
 if ("scrollRestoration" in window.history) {
   window.history.scrollRestoration = "manual";
@@ -2055,18 +2055,16 @@ function setInviteDialogOpen(open) {
   if (inviteDialog.open) inviteDialog.close();
 }
 
-function playlistSharePreviewUrl(playlist = state.activePlaylist) {
+function playlistShareUrl(playlist = state.activePlaylist) {
   const code = cleanText(playlist?.inviteCode, 4);
-  const name = cleanText(playlist?.playlistName, 60);
-  if (!/^\d{4}$/.test(code) || !name) return "";
-  const url = new URL(SHARE_PREVIEW_URL);
+  if (!/^\d{4}$/.test(code)) return "";
+  const url = new URL(GITHUB_APP_URL);
   url.searchParams.set("playlist", code);
-  url.searchParams.set("name", name);
   return url.toString();
 }
 
 async function shareActiveInviteLink() {
-  const url = playlistSharePreviewUrl();
+  const url = playlistShareUrl();
   if (!url) return;
   const name = cleanText(state.activePlaylist?.playlistName, 60) || "this playlist";
   inviteShareStatus.textContent = "";
