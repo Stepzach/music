@@ -185,18 +185,20 @@ html.is-route-loading.is-route-revealing .page-shell {
 }
 
 .theme-toggle {
-  position: relative;
-  display: flex;
-  width: 75px !important;
-  height: 31px !important;
-  padding: 2px;
-  border: 1px solid var(--quiet-control-border);
-  border-radius: 7px;
-  background: var(--quiet-control);
-  color: var(--ink);
-  cursor: pointer;
-  line-height: 1;
-  transition: background .16s ease, border-color .16s ease, transform .16s ease;
+    position: relative;
+    display: flex;
+    width: 65px !important;
+    height: 30px !important;
+    /* padding: 2px; */
+    /* margin: 0; */
+    border: 1px solid var(--quiet-control-border);
+    border-radius: 15px;
+    background: var(--quiet-control);
+    color: var(--ink);
+    cursor: pointer;
+    line-height: 1;
+    transition: background .16s ease, border-color .16s ease, transform .16s ease;
+    justify-content: space-between;
 }
 
 .profile-trigger {
@@ -219,24 +221,29 @@ html.is-route-loading.is-route-revealing .page-shell {
 .profile-trigger:active { transform: scale(.92); }
 
 .theme-toggle-track {
-  display: grid;
-  width: 100%;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0;
-  height:100%;
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+    height: 100%;
+    justify-content: space-between;
+    justify-items: center;
+    align-items: center;
 }
 
 .theme-toggle-option {
-  display: grid;
-  min-width: 0;
-  place-items: center;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  color: var(--muted);
-  font-size: 16px;
-      height: 100%;
-  opacity: .58;
-  transition: background .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease, opacity .16s ease;
+    display: grid;
+    min-width: 0;
+    place-items: center;
+    border: 1px solid transparent;
+    border-radius: 50%;
+    color: var(--muted);
+    font-size: 14px;
+    height: 25px;
+    width: 26px;
+    padding: 4px;
+    opacity: .58;
+    transition: background .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease, opacity .16s ease;
 }
 
 .theme-toggle[data-theme="light"] .theme-toggle-sun,
