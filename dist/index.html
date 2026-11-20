@@ -38,7 +38,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300..700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
-    <link rel="stylesheet" href="./styles.css?v=20261119-15" />
+    <link rel="stylesheet" href="./styles.css?v=20261120-16" />
   </head>
   <body>
     <a class="skip-link" href="#app-root">Skip to the app</a>
@@ -76,7 +76,7 @@
           <form id="auth-form" class="form-stack">
             <label id="auth-name-row">
               <span>Your name</span>
-              <input id="auth-name" type="text" maxlength="40" autocomplete="name" placeholder="Your name" />
+              <input id="auth-name" type="text" maxlength="10" autocomplete="name" placeholder="Your name" />
             </label>
             <label id="auth-email-row">
               <span>Email</span>
@@ -177,7 +177,11 @@
               <i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i>
             </button>
           </div>
-          <button id="open-playlist-settings" class="text-action compact playlist-settings-trigger" type="button">Edit playlist</button>
+          <button id="open-playlist-settings" class="text-action compact playlist-settings-trigger" type="button">
+            <i class="fa-solid fa-pen" aria-hidden="true"></i>
+            <span class="playlist-settings-label-long">Edit playlist</span>
+            <span class="playlist-settings-label-short">Edit</span>
+          </button>
         </div>
 
         <section class="composer" aria-labelledby="share-title">
@@ -265,6 +269,34 @@
           </div>
         </dialog>
 
+        <dialog id="delete-share-dialog" class="popup-dialog confirmation-dialog" aria-labelledby="delete-share-dialog-title" aria-describedby="delete-share-dialog-copy">
+          <div class="popup-dialog-card">
+            <div class="popup-dialog-heading">
+              <h2 id="delete-share-dialog-title">Delete song?</h2>
+              <button id="close-delete-share-dialog" class="dialog-close" type="button" aria-label="Close delete song confirmation"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+            </div>
+            <p id="delete-share-dialog-copy" class="confirmation-copy">Are you sure you want to delete this song?</p>
+            <div class="confirmation-actions">
+              <button id="cancel-delete-share" class="quiet-button" type="button">Cancel</button>
+              <button id="confirm-delete-share" class="share-button" type="button">Delete</button>
+            </div>
+          </div>
+        </dialog>
+
+        <dialog id="delete-playlist-dialog" class="popup-dialog confirmation-dialog" aria-labelledby="delete-playlist-dialog-title" aria-describedby="delete-playlist-dialog-copy">
+          <div class="popup-dialog-card">
+            <div class="popup-dialog-heading">
+              <h2 id="delete-playlist-dialog-title">Delete playlist?</h2>
+              <button id="close-delete-playlist-dialog" class="dialog-close" type="button" aria-label="Close delete playlist confirmation"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+            </div>
+            <p id="delete-playlist-dialog-copy" class="confirmation-copy">Are you sure you want to delete this playlist?</p>
+            <div class="confirmation-actions">
+              <button id="cancel-delete-playlist" class="quiet-button" type="button">Cancel</button>
+              <button id="confirm-delete-playlist" class="share-button" type="button">Delete</button>
+            </div>
+          </div>
+        </dialog>
+
         <dialog id="playlist-settings-dialog" class="popup-dialog" aria-labelledby="playlist-settings-title">
           <div class="popup-dialog-card">
             <div class="popup-dialog-heading">
@@ -294,7 +326,7 @@
         <form id="account-form" class="account-form">
           <label>
             <span>Name</span>
-            <input id="account-name" type="text" maxlength="40" autocomplete="name" required />
+            <input id="account-name" type="text" maxlength="10" autocomplete="name" required />
           </label>
           <p class="account-email"><span>Email</span><strong id="account-email"></strong></p>
           <button id="account-save" class="share-button" type="submit">Save</button>
@@ -306,6 +338,6 @@
 
     <audio id="preview-audio" preload="none"></audio>
     <div id="toast-root" class="toast-root" aria-live="polite" aria-atomic="true"></div>
-    <script type="module" src="./app.js?v=20261119-17"></script>
+    <script type="module" src="./app.js?v=20261120-18"></script>
   </body>
 </html>

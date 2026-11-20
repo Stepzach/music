@@ -860,6 +860,21 @@ html[data-theme="dark"] .play-button { color: #151515; }
 
 @keyframes toast-in { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
 
+@keyframes surface-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes dialog-in {
+  from { opacity: 0; transform: translateY(10px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 :focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 3px;
@@ -1112,6 +1127,11 @@ html[data-theme="dark"] .play-button { color: #151515; }
   margin-top: 13px;
 }
 
+.inline-form:not([hidden]) {
+  transform-origin: 50% 0;
+  animation: surface-in .26s cubic-bezier(.22, .8, .3, 1) both;
+}
+
 .home-discovery .inline-form {
   width: 100%;
   padding: 17px;
@@ -1147,7 +1167,7 @@ html[data-theme="dark"] .play-button { color: #151515; }
   display: grid;
   width: 26px;
   height: 26px;
-  padding: 0 0 2px;
+  padding: 0;
   place-items: center;
   border: 1px solid var(--quiet-control-border);
   border-radius: 50%;
@@ -1359,40 +1379,62 @@ html[data-theme="dark"] .play-button { color: #151515; }
   flex: 0 0 auto;
 }
 
-.member-action-short { display: none; }
-.leave-playlist,
+.member-action-short,
+.playlist-settings-label-short { display: none; }
+
 .invite-people {
   display: inline-flex;
   min-height: 31px;
   align-items: center;
-  justify-content: center;
   gap: 4px;
-  padding: 0 9px;
-  border: 1px solid var(--quiet-control-border);
-  border-radius: 7px;
-  background: var(--quiet-control);
-  color: #151515;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
   cursor: pointer;
   font-family: inherit;
   font-size: 13px;
   line-height: 1;
-  text-decoration: none;
+  text-decoration: underline;
+  text-underline-offset: 2px;
   white-space: nowrap;
-  transition: background .16s ease, border-color .16s ease, transform .16s ease, opacity .16s ease;
+  transition: color .16s ease, opacity .16s ease;
 }
 
-.leave-playlist:hover:not(:disabled),
-.invite-people:hover:not(:disabled) { border-color: var(--muted); background: var(--quiet-control-hover); color: #151515; }
-
-.leave-playlist:active:not(:disabled),
-.invite-people:active:not(:disabled) { transform: scale(.96); }
-
-.leave-playlist:disabled,
+.invite-people:hover:not(:disabled) { color: var(--ink); }
+.invite-people:active:not(:disabled) { opacity: .68; }
 .invite-people:disabled { cursor: wait; opacity: .55; }
 
-.leave-playlist { width: 31px; padding: 0; }
+.leave-playlist {
+  display: grid;
+  width: 31px;
+  min-height: 31px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1;
+  transition: color .16s ease, opacity .16s ease;
+}
+
+.leave-playlist:hover:not(:disabled) { color: var(--ink); }
+.leave-playlist:active:not(:disabled) { opacity: .68; }
+.leave-playlist:disabled { cursor: wait; opacity: .55; }
+
 .leave-playlist i { font-size: 12px; }
 .invite-people .invite-symbol { font-size: 15px; line-height: 1; }
+
+.playlist-settings-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.playlist-settings-trigger i { font-size: 11px; }
 
 .member-overflow {
   padding: 0;
@@ -1448,8 +1490,17 @@ html[data-theme="dark"] .play-button { color: #151515; }
   color: var(--ink);
 }
 
+.member-dialog[open],
+.popup-dialog[open] {
+  transform-origin: 50% 50%;
+  animation: dialog-in .24s cubic-bezier(.22, .8, .3, 1) both;
+}
+
 .member-dialog::backdrop,
 .popup-dialog::backdrop { background: rgba(0, 0, 0, .28); }
+
+.member-dialog[open]::backdrop,
+.popup-dialog[open]::backdrop { animation: backdrop-in .2s ease both; }
 
 .member-dialog-card,
 .popup-dialog-card { padding: 18px; }
@@ -1698,16 +1749,13 @@ html[data-theme="dark"] .play-button { color: #151515; }
   .playlist-members { gap: 6px; }
   .playlist-members { flex-wrap: nowrap; }
   .playlist-members-summary { flex-basis: auto; }
-  .leave-playlist,
-  .invite-people {
-    min-height: 29px;
-    padding: 0 8px;
-    font-size: 12px;
-  }
-  .leave-playlist { width: 29px; padding: 0; }
-  .playlist-settings-trigger { font-size: 12px; }
+  .invite-people { min-height: 29px; font-size: 12px; }
+  .leave-playlist { width: 29px; min-height: 29px; }
+  .playlist-settings-trigger { gap: 4px; font-size: 12px; }
   .member-action-long { display: none; }
   .member-action-short { display: inline; }
+  .playlist-settings-label-long { display: none; }
+  .playlist-settings-label-short { display: inline; }
   .invite-people .invite-symbol { font-size: 14px; }
 
   .member-dialog::backdrop,

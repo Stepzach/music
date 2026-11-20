@@ -100,6 +100,10 @@ const leavePlaylistDialog = $("#leave-playlist-dialog");
 const closeLeavePlaylistDialog = $("#close-leave-playlist-dialog");
 const cancelLeavePlaylist = $("#cancel-leave-playlist");
 const confirmLeavePlaylist = $("#confirm-leave-playlist");
+const deleteShareDialog = $("#delete-share-dialog");
+const closeDeleteShareDialog = $("#close-delete-share-dialog");
+const cancelDeleteShare = $("#cancel-delete-share");
+const confirmDeleteShare = $("#confirm-delete-share");
 const openPlaylistSettings = $("#open-playlist-settings");
 const playlistSettingsDialog = $("#playlist-settings-dialog");
 const closePlaylistSettings = $("#close-playlist-settings");
@@ -108,6 +112,10 @@ const renamePlaylistName = $("#rename-playlist-name");
 const renamePlaylistButton = $("#rename-playlist-button");
 const renamePlaylistStatus = $("#rename-playlist-status");
 const deletePlaylistButton = $("#delete-playlist");
+const deletePlaylistDialog = $("#delete-playlist-dialog");
+const closeDeletePlaylistDialog = $("#close-delete-playlist-dialog");
+const cancelDeletePlaylist = $("#cancel-delete-playlist");
+const confirmDeletePlaylist = $("#confirm-delete-playlist");
 const joinToShare = $("#join-to-share");
 const joinPublicPlaylistButton = $("#join-public-playlist");
 const joinPublicPlaylistStatus = $("#join-public-playlist-status");
@@ -151,6 +159,8 @@ const state = {
   activePlaylist: null,
   activeMembers: [],
   authMode: "signUp",
+  pendingInitialProfile: null,
+  pendingShareDeletion: null,
   membershipUnsubscribe: null,
   communityUnsubscribe: null,
   feedUnsubscribe: null,
@@ -862,7 +872,6 @@ function canDeleteShare(share) {
 async function deleteShare(share, button) {
   if (!state.user || !state.activePlaylist) return;
   if (!canDeleteShare(share)) return;
-  if (!window.confirm("Are you sure you want to delete?")) return;
 
   button.disabled = true;
   try {
@@ -1018,7 +1027,7 @@ function renderShare(share) {
     remove.type = "button";
     remove.setAttribute("aria-label", "Delete this share");
     remove.title = "Delete this share";
-    remove.addEventListener("click", () => deleteShare(share, remove));
+    remove.addEventListener("click", () => setDeleteShareDialogOpen(true, share, remove));
     metaActions.append(remove);
   }
 
@@ -1197,7 +1206,7 @@ function showAuth(mode = "signUp") {
     authTitle.textContent = "One small thing";
     authSubtitle.textContent = "What should your friends call you?";
     authSubmit.textContent = "Continue";
-    authNameInput.value = authNameInput.value || cleanText(state.user?.displayName, 40);
+    authNameInput.value = authNameInput.value || cleanText(state.user?.displayName, 10);
   } else if (isSignIn) {
     authTitle.textContent = "Welcome back";
     authSubtitle.textContent = "Pick up where you left off.";
@@ -1248,7 +1257,10 @@ function clearPlaylistSubscriptions() {
   if (memberDialog.open) memberDialog.close();
   if (inviteDialog.open) inviteDialog.close();
   if (leavePlaylistDialog.open) leavePlaylistDialog.close();
+  if (deleteShareDialog.open) deleteShareDialog.close();
+  if (deletePlaylistDialog.open) deletePlaylistDialog.close();
   if (playlistSettingsDialog.open) playlistSettingsDialog.close();
+  state.pendingShareDeletion = null;
 }
 
 function clearPlaylistDraft() {
@@ -2044,6 +2056,27 @@ async function leaveActivePlaylist() {
   }
 }
 
+function setDeleteShareDialogOpen(open, share = null, button = null) {
+  if (open) {
+    if (!share || !button || !canDeleteShare(share)) return;
+    state.pendingShareDeletion = { share, button };
+    if (!deleteShareDialog.open) deleteShareDialog.showModal();
+    return;
+  }
+  state.pendingShareDeletion = null;
+  if (deleteShareDialog.open) deleteShareDialog.close();
+}
+
+function setDeletePlaylistDialogOpen(open) {
+  if (open) {
+    if (!state.activePlaylist || !canManageActivePlaylist()) return;
+    if (playlistSettingsDialog.open) playlistSettingsDialog.close();
+    if (!deletePlaylistDialog.open) deletePlaylistDialog.showModal();
+    return;
+  }
+  if (deletePlaylistDialog.open) deletePlaylistDialog.close();
+}
+
 function setInviteDialogOpen(open) {
   if (open) {
     if (!cleanText(state.activePlaylist?.inviteCode, 4)) return;
@@ -2120,7 +2153,7 @@ function setAccountDialogOpen(open) {
   accountStatus.textContent = "";
   if (open) {
     if (!state.user || !state.profile) return;
-    accountNameInput.value = cleanText(state.profile.displayName, 40);
+    accountNameInput.value = cleanText(state.profile.displayName, 10);
     accountEmail.textContent = cleanText(state.user.email, 160) || "No email saved";
     if (!accountDialog.open) accountDialog.showModal();
     return;
@@ -2130,7 +2163,7 @@ function setAccountDialogOpen(open) {
 
 async function updateCurrentProfileName(name) {
   if (!state.user || !state.profile) throw new Error("Sign in first.");
-  const displayName = cleanText(name, 40);
+  const displayName = cleanText(name, 10);
   if (!displayName) throw new Error("Add the name you’d like to use.");
 
   await setDoc(doc(db, "profiles", state.user.uid), {
@@ -2191,7 +2224,6 @@ async function deleteActivePlaylist() {
     toast("Only the creator can delete this public playlist.", "error");
     return;
   }
-  if (!window.confirm("Are you sure you want to delete this playlist?")) return;
 
   const playlist = state.activePlaylist;
   const playlistRef = doc(db, "sharedPlaylists", playlist.id);
@@ -2224,7 +2256,7 @@ async function deleteActivePlaylist() {
 }
 
 async function saveProfile(user, name) {
-  const displayName = cleanText(name, 40);
+  const displayName = cleanText(name, 10);
   if (!displayName) throw new Error("Add the name you’d like to use.");
   await updateProfile(user, { displayName });
   await setDoc(doc(db, "profiles", user.uid), {
@@ -2243,6 +2275,12 @@ async function saveProfile(user, name) {
 }
 
 async function activateUser(user) {
+  const pendingProfile = state.pendingInitialProfile;
+  if (user && pendingProfile && (!pendingProfile.uid || pendingProfile.uid === user.uid)) {
+    pendingProfile.uid = user.uid;
+    return;
+  }
+
   clearFeedSubscription();
   clearPlaylistSubscriptions();
   clearMembershipSubscription();
@@ -2303,10 +2341,26 @@ authForm.addEventListener("submit", async (event) => {
     } else if (state.authMode === "signIn") {
       await signInWithEmailAndPassword(auth, cleanText(authEmailInput.value, 120), authPasswordInput.value);
     } else {
-      const displayName = cleanText(authNameInput.value, 40);
+      const displayName = cleanText(authNameInput.value, 10);
       if (!displayName) throw new Error("Add the name you’d like to use.");
-      const credential = await createUserWithEmailAndPassword(auth, cleanText(authEmailInput.value, 120), authPasswordInput.value);
-      await saveProfile(credential.user, displayName);
+      let createdUser = null;
+      state.pendingInitialProfile = { displayName, uid: "" };
+      try {
+        const credential = await createUserWithEmailAndPassword(auth, cleanText(authEmailInput.value, 120), authPasswordInput.value);
+        createdUser = credential.user;
+        state.pendingInitialProfile.uid = createdUser.uid;
+        await saveProfile(createdUser, displayName);
+      } catch (error) {
+        if (createdUser) {
+          state.user = createdUser;
+          state.profile = null;
+          showAuth("profile");
+          authNameInput.value = displayName;
+        }
+        throw error;
+      } finally {
+        state.pendingInitialProfile = null;
+      }
     }
   } catch (error) {
     console.error(error);
@@ -2435,6 +2489,16 @@ confirmLeavePlaylist.addEventListener("click", () => {
   setLeavePlaylistDialogOpen(false);
   void leaveActivePlaylist();
 });
+closeDeleteShareDialog.addEventListener("click", () => setDeleteShareDialogOpen(false));
+cancelDeleteShare.addEventListener("click", () => setDeleteShareDialogOpen(false));
+confirmDeleteShare.addEventListener("click", () => {
+  const pendingDeletion = state.pendingShareDeletion;
+  setDeleteShareDialogOpen(false);
+  if (pendingDeletion) void deleteShare(pendingDeletion.share, pendingDeletion.button);
+});
+deleteShareDialog.addEventListener("close", () => {
+  state.pendingShareDeletion = null;
+});
 openPlaylistSettings.addEventListener("click", () => setPlaylistSettingsOpen(true));
 closePlaylistSettings.addEventListener("click", () => setPlaylistSettingsOpen(false));
 
@@ -2454,6 +2518,12 @@ renamePlaylistForm.addEventListener("submit", async (event) => {
 });
 
 deletePlaylistButton.addEventListener("click", () => {
+  setDeletePlaylistDialogOpen(true);
+});
+closeDeletePlaylistDialog.addEventListener("click", () => setDeletePlaylistDialogOpen(false));
+cancelDeletePlaylist.addEventListener("click", () => setDeletePlaylistDialogOpen(false));
+confirmDeletePlaylist.addEventListener("click", () => {
+  setDeletePlaylistDialogOpen(false);
   void deleteActivePlaylist();
 });
 
