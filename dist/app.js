@@ -1330,8 +1330,28 @@ function playlistVisibility(value) {
   return value === "public" ? "public" : "private";
 }
 
+function knownPublicPlaylist(playlistId) {
+  const id = cleanText(playlistId, 128);
+  if (!id) return null;
+  return state.communityPlaylists.find((playlist) =>
+    playlist.id === id && playlistVisibility(playlist.visibility) === "public"
+  ) || null;
+}
+
+function membershipWithKnownVisibility(membership, previousMembership = null) {
+  if (!membership?.id) return membership;
+  const publicPlaylist = knownPublicPlaylist(membership.id);
+  return {
+    ...membership,
+    visibility: publicPlaylist
+      ? "public"
+      : playlistVisibility(membership.visibility || previousMembership?.visibility),
+  };
+}
+
 function isPublicPlaylist(playlist) {
-  return playlistVisibility(playlist?.visibility) === "public";
+  return playlistVisibility(playlist?.visibility) === "public"
+    || Boolean(knownPublicPlaylist(playlist?.id));
 }
 
 function ownerNameForPlaylist(playlist, membership = null) {
@@ -1450,9 +1470,11 @@ function sortMembers(items) {
 
 function upsertMembership(membership) {
   if (!membership?.id) return;
+  const existingMembership = membershipForPlaylist(membership.id);
+  const resolvedMembership = membershipWithKnownVisibility(membership, existingMembership);
   state.memberships = sortMemberships([
     ...state.memberships.filter((item) => item.id !== membership.id),
-    membership,
+    resolvedMembership,
   ]);
   syncMembershipMetadataSubscriptions();
   renderHome();
@@ -1546,7 +1568,11 @@ function startMembershipListener() {
     where("userId", "==", state.user.uid)
   );
   state.membershipUnsubscribe = onSnapshot(membershipsQuery, (snapshot) => {
-    state.memberships = sortMemberships(snapshot.docs.map(membershipFromDocument).filter(Boolean));
+    const existingMemberships = new Map(state.memberships.map((membership) => [membership.id, membership]));
+    state.memberships = sortMemberships(snapshot.docs
+      .map(membershipFromDocument)
+      .filter(Boolean)
+      .map((membership) => membershipWithKnownVisibility(membership, existingMemberships.get(membership.id))));
     syncMembershipMetadataSubscriptions();
     renderHome();
   }, (error) => {
@@ -1567,6 +1593,7 @@ function startCommunityListener() {
       const membership = membershipForPlaylist(document.id);
       return playlistDescriptor(document.id, document.data(), membership);
     }).sort((left, right) => (timestampValue(right.createdAt)?.getTime() || 0) - (timestampValue(left.createdAt)?.getTime() || 0));
+    state.memberships = state.memberships.map((membership) => membershipWithKnownVisibility(membership));
     renderHome();
   }, (error) => {
     console.error(error);
@@ -1807,7 +1834,9 @@ function enterPlaylist(playlist, { updateRoute = true } = {}) {
     ownerUid: cleanText(playlist.ownerUid || membership?.ownerUid, 128),
     ownerName: cleanText(playlist.ownerName || membership?.ownerName, 40) || ownerNameForPlaylist(playlist, membership),
     inviteCode: cleanText(playlist.inviteCode || membership?.inviteCode, 4),
-    visibility: playlistVisibility(playlist.visibility || membership?.visibility),
+    visibility: isPublicPlaylist(playlist) || isPublicPlaylist(membership)
+      ? "public"
+      : playlistVisibility(playlist.visibility || membership?.visibility),
     createdAt: playlist.createdAt || membership?.createdAt || null,
     role: membership?.role || playlist.role || "viewer",
   };
@@ -2042,7 +2071,21 @@ async function joinSharedPlaylist(code) {
   const playlistId = cleanText(invite.playlistId, 128);
   const playlistName = cleanText(invite.playlistName, 60);
   if (!playlistId || !playlistName) throw new Error("That code doesn’t look right.");
-  return joinPlaylistWithDetails({ id: playlistId, playlistName, inviteCode: code });
+
+  // Public playlists are readable before joining. Hydrating one here keeps its
+  // visibility correct on the very first render of Your playlists; private
+  // playlists deliberately fall back to the code-only path until membership exists.
+  const playlist = { id: playlistId, playlistName, inviteCode: code };
+  try {
+    const playlistSnapshot = await getDoc(doc(db, "sharedPlaylists", playlistId));
+    if (playlistSnapshot.exists()) {
+      Object.assign(playlist, playlistDescriptor(playlistId, playlistSnapshot.data()));
+    }
+  } catch (error) {
+    if (error?.code !== "permission-denied") throw error;
+  }
+
+  return joinPlaylistWithDetails(playlist);
 }
 
 async function joinActivePublicPlaylist() {
