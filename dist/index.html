@@ -27,18 +27,17 @@
         document.documentElement.dataset.theme = theme;
         document.documentElement.style.colorScheme = theme;
 
-        const playlistCode = new URLSearchParams(window.location.search).get("playlist") || "";
-        if (/^\d{4}$/.test(playlistCode)) {
-          document.documentElement.classList.add("is-route-loading");
-          window.__discoHold = true;
-        }
+        // Keep every first render behind the lightweight loader until Firebase
+        // restores a saved session (and, when needed, resolves a playlist URL).
+        document.documentElement.classList.add("is-route-loading");
+        window.__discoHold = true;
       })();
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300..700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
-    <link rel="stylesheet" href="./styles.css?v=20261120-16" />
+    <link rel="stylesheet" href="./styles.css?v=20261120-18" />
   </head>
   <body>
     <a class="skip-link" href="#app-root">Skip to the app</a>
@@ -54,6 +53,7 @@
     <div class="top-controls">
       <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch to dark mode" aria-pressed="false" title="Switch to dark mode" data-theme="light">
         <span class="theme-toggle-track" aria-hidden="true">
+          <span class="theme-toggle-thumb"></span>
           <span class="theme-toggle-option theme-toggle-sun"><i class="fa-solid fa-star"></i></span>
           <span class="theme-toggle-option theme-toggle-moon"><i class="fa-solid fa-moon"></i></span>
         </span>
@@ -63,6 +63,7 @@
       </button>
     </div>
     <header class="masthead">
+      <div id="playlist-masthead-artwork" class="playlist-masthead-artwork" aria-hidden="true" hidden></div>
       <h1 id="masthead-title" data-disco-target>resonance</h1>
       <p id="masthead-tagline" class="tagline">Shared playlists</p>
     </header>
@@ -338,6 +339,6 @@
 
     <audio id="preview-audio" preload="none"></audio>
     <div id="toast-root" class="toast-root" aria-live="polite" aria-atomic="true"></div>
-    <script type="module" src="./app.js?v=20261120-18"></script>
+    <script type="module" src="./app.js?v=20261120-19"></script>
   </body>
 </html>

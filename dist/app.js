@@ -43,8 +43,10 @@ const feedCount = $("#feed-count");
 const toastRoot = $("#toast-root");
 const themeToggle = $("#theme-toggle");
 const themeColor = $("meta[name='theme-color']");
+const masthead = $(".masthead");
 const mastheadTitle = $("#masthead-title");
 const mastheadTagline = $("#masthead-tagline");
+const playlistMastheadArtwork = $("#playlist-masthead-artwork");
 const authView = $("#auth-view");
 const homeView = $("#home-view");
 const playlistView = $("#playlist-view");
@@ -179,6 +181,7 @@ let themeBoundaryTimer = 0;
 const playlistMetadataUnsubscribers = new Map();
 const playlistSongTotalRequests = new Map();
 const playlistSongTotals = new Map();
+const playlistArtworkPreviews = new Map();
 const playlistOwnerNameRequests = new Map();
 
 function automaticTheme(now = new Date()) {
@@ -740,6 +743,7 @@ shareForm.addEventListener("submit", async (event) => {
     });
     if (state.currentPlaybackKey?.startsWith("draft:")) stopPlayback();
     playlistSongTotals.delete(state.activePlaylist.id);
+    playlistArtworkPreviews.delete(state.activePlaylist.id);
     noteInput.value = "";
     state.selectedTracks = [];
     clearSearchQuery();
@@ -778,6 +782,48 @@ function tracksFromShare(share) {
   return rawTracks
     .filter((track) => track && typeof track === "object")
     .map(trackFromRaw);
+}
+
+function playlistTracks(shares) {
+  return shares.flatMap((share) => tracksFromShare(share));
+}
+
+function playlistArtworkTracks(shares) {
+  return playlistTracks(shares).slice(0, 4);
+}
+
+function createArtworkGrid(tracks, gridClass, tileClass, { showFallbackArtwork = false } = {}) {
+  const grid = createElement("span", gridClass);
+  grid.setAttribute("aria-hidden", "true");
+
+  for (let index = 0; index < 4; index += 1) {
+    const track = tracks[index];
+    const artwork = safeUrl(track?.artwork);
+    const tile = createElement("span", tileClass);
+    if (artwork || (track && showFallbackArtwork)) {
+      tile.append(image(artwork, "", `${tileClass}-image`));
+    } else {
+      tile.classList.add("is-empty");
+    }
+    grid.append(tile);
+  }
+
+  return grid;
+}
+
+function renderPlaylistMastheadArtwork() {
+  if (!playlistMastheadArtwork) return;
+  const tracks = playlistArtworkTracks(state.shares);
+  const shouldShow = Boolean(state.activePlaylist && tracks.length >= 4);
+
+  playlistMastheadArtwork.replaceChildren();
+  playlistMastheadArtwork.hidden = !shouldShow;
+  masthead?.classList.toggle("has-playlist-artwork", shouldShow);
+
+  if (!shouldShow) return;
+  playlistMastheadArtwork.append(
+    createArtworkGrid(tracks, "playlist-masthead-artwork-grid", "playlist-masthead-cover", { showFallbackArtwork: true })
+  );
 }
 
 function appleMusicUrl(value) {
@@ -877,6 +923,7 @@ async function deleteShare(share, button) {
   try {
     await deleteDoc(doc(db, "sharedPlaylists", state.activePlaylist.id, "shares", share.id));
     playlistSongTotals.delete(state.activePlaylist.id);
+    playlistArtworkPreviews.delete(state.activePlaylist.id);
   } catch (error) {
     button.disabled = false;
     toast("Couldn’t delete that. Try again.", "error");
@@ -1120,6 +1167,7 @@ function scheduleFeedPreviewRefresh() {
 function setMasthead(tagline) {
   mastheadTitle.textContent = "resonance";
   mastheadTagline.textContent = tagline;
+  renderPlaylistMastheadArtwork();
 }
 
 function setPageMetadata(playlistName = "") {
@@ -1249,6 +1297,7 @@ function clearPlaylistSubscriptions() {
   state.playlistUnsubscribe = null;
   state.activeMembers = [];
   state.shares = [];
+  renderPlaylistMastheadArtwork();
   joinToShare.hidden = true;
   joinPublicPlaylistStatus.textContent = "";
   composer.hidden = false;
@@ -1349,10 +1398,15 @@ function songTotalLabel(playlistId) {
 
 function loadPlaylistSongTotal(playlistId) {
   if (!playlistId || playlistSongTotals.has(playlistId) || playlistSongTotalRequests.has(playlistId)) return;
-  const request = getDocs(collection(db, "sharedPlaylists", playlistId, "shares"))
+  const sharesQuery = query(
+    collection(db, "sharedPlaylists", playlistId, "shares"),
+    orderBy("createdAt", "desc")
+  );
+  const request = getDocs(sharesQuery)
     .then((snapshot) => {
-      const total = snapshot.docs.reduce((count, document) => count + tracksFromShare(document.data()).length, 0);
-      playlistSongTotals.set(playlistId, total);
+      const tracks = playlistTracks(snapshot.docs.map((document) => document.data()));
+      playlistSongTotals.set(playlistId, tracks.length);
+      playlistArtworkPreviews.set(playlistId, tracks.slice(0, 4));
       renderHome();
     })
     .catch((error) => console.error(error))
@@ -1420,6 +1474,7 @@ function syncMembershipMetadataSubscriptions() {
       if (!snapshot.exists()) {
         state.memberships = state.memberships.filter((item) => item.id !== membership.id);
         playlistSongTotals.delete(membership.id);
+        playlistArtworkPreviews.delete(membership.id);
         renderHome();
         return;
       }
@@ -1453,7 +1508,10 @@ function renderPlaylistCard(playlist, { community = false } = {}) {
     createElement("strong", "", cleanText(playlist.playlistName, 60) || "Untitled playlist"),
     metadata
   );
-  item.append(copy);
+  item.append(
+    createArtworkGrid(playlistArtworkPreviews.get(playlist.id) || [], "playlist-card-artwork", "playlist-card-artwork-tile"),
+    copy
+  );
   item.addEventListener("click", () => {
     const membership = membershipForPlaylist(playlist.id);
     enterPlaylist(membership || playlist);
@@ -1717,7 +1775,12 @@ function subscribeToPlaylistShares() {
     orderBy("createdAt", "desc")
   );
   state.feedUnsubscribe = onSnapshot(sharesQuery, (snapshot) => {
+    if (!state.activePlaylist) return;
     state.shares = snapshot.docs.map((document) => ({ id: document.id, ...document.data() }));
+    const tracks = playlistTracks(state.shares);
+    playlistSongTotals.set(state.activePlaylist.id, tracks.length);
+    playlistArtworkPreviews.set(state.activePlaylist.id, tracks.slice(0, 4));
+    renderPlaylistMastheadArtwork();
     renderPlaylistDetails();
     if (memberDialog.open) renderMemberDialog();
     renderFeed();
@@ -2246,6 +2309,8 @@ async function deleteActivePlaylist() {
     await batch.commit();
 
     state.memberships = state.memberships.filter((membership) => membership.id !== playlist.id);
+    playlistSongTotals.delete(playlist.id);
+    playlistArtworkPreviews.delete(playlist.id);
     syncMembershipMetadataSubscriptions();
     backToHome();
   } catch (error) {
@@ -2290,6 +2355,7 @@ async function activateUser(user) {
   state.shares = [];
   state.memberships = [];
   playlistSongTotals.clear();
+  playlistArtworkPreviews.clear();
   playlistSongTotalRequests.clear();
   playlistOwnerNameRequests.clear();
   state.user = user || null;
