@@ -144,7 +144,7 @@ const GITHUB_APP_URL = "https://stepzach.github.io/music/";
 // private half lives only in the Firebase Function secret.
 const PUSH_VAPID_PUBLIC_KEY = "zkbrU3iKHrJFnHpW_5fEk1EY2f-s4XdU2h_yBBJU4yYTo0YBBk9DiYLMUvoCzvvQwU0FGre3qSk3Dy8EmBMLoA";
 const PUSH_SETTING_ID = "song-shares";
-const PUSH_SERVICE_WORKER_URL = "./service-worker.js?v=20261120-1";
+const PUSH_SERVICE_WORKER_URL = "./service-worker.js?v=20261121-1";
 
 if ("scrollRestoration" in window.history) {
   window.history.scrollRestoration = "manual";
@@ -196,6 +196,8 @@ const playlistSongTotalRequests = new Map();
 const playlistSongTotals = new Map();
 const playlistArtworkPreviews = new Map();
 const playlistOwnerNameRequests = new Map();
+let pushServiceWorkerPromise = null;
+let preparedPushServiceWorker = null;
 
 function automaticTheme(now = new Date()) {
   const hour = now.getHours();
@@ -1252,8 +1254,12 @@ function browserSupportsPushNotifications() {
   return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 }
 
+function needsIosHomeScreenApp() {
+  return isIosDevice() && !isStandaloneApp();
+}
+
 function canSetUpPushNotifications() {
-  return browserSupportsPushNotifications() && Boolean(PUSH_VAPID_PUBLIC_KEY);
+  return browserSupportsPushNotifications() && Boolean(PUSH_VAPID_PUBLIC_KEY) && !needsIosHomeScreenApp();
 }
 
 function notificationSettingsRef(userId = state.user?.uid) {
@@ -1281,13 +1287,13 @@ function notificationDescriptionText() {
   if (!state.user || !state.profile) return "";
   if (!state.notificationPreferenceLoaded) return "Loading…";
   if (!state.notificationsEnabled) return "Off.";
+  if (needsIosHomeScreenApp()) return "Add Resonance to your Home Screen to turn these on.";
   if (!browserSupportsPushNotifications()) return "Notifications aren’t available in this browser.";
   if (!PUSH_VAPID_PUBLIC_KEY) return "Notifications will be ready soon.";
 
   const permission = notificationPermission();
   if (permission === "denied") return "Notifications are blocked in this browser.";
   if (permission === "granted" && state.pushSubscriptionReady) return "On for this device.";
-  if (isIosDevice() && !isStandaloneApp()) return "Add Resonance to your Home Screen to turn these on.";
   return "Turn these on for this device.";
 }
 
@@ -1298,11 +1304,7 @@ function renderNotificationPreference({ preserveStatus = false } = {}) {
     && state.notificationsEnabled
     && canSetUpPushNotifications()
     && permission !== "denied"
-    && !state.pushSubscriptionReady
-    // iPhone only grants Web Push permission to an installed Home Screen app.
-    // Keep the install guidance visible instead of offering a button the
-    // browser cannot complete.
-    && !(isIosDevice() && !isStandaloneApp() && permission === "default");
+    && !state.pushSubscriptionReady;
 
   notificationEnabledInput.checked = state.notificationsEnabled;
   notificationEnabledInput.disabled = !state.user || !state.notificationPreferenceLoaded || state.notificationPreferenceSaving;
@@ -1357,13 +1359,50 @@ function serializedPushSubscription(subscription) {
   return { endpoint, p256dh, auth };
 }
 
-async function pushServiceWorkerRegistration() {
+function pushServiceWorkerRegistration() {
   if (!browserSupportsPushNotifications()) throw new Error("Notifications aren’t available in this browser.");
-  const registration = await navigator.serviceWorker.register(PUSH_SERVICE_WORKER_URL, {
-    scope: "./",
-    updateViaCache: "none",
+  if (preparedPushServiceWorker?.active) return Promise.resolve(preparedPushServiceWorker);
+  if (preparedPushServiceWorker && !preparedPushServiceWorker.active) {
+    preparedPushServiceWorker = null;
+    pushServiceWorkerPromise = null;
+  }
+  if (!pushServiceWorkerPromise) {
+    pushServiceWorkerPromise = navigator.serviceWorker.register(PUSH_SERVICE_WORKER_URL, {
+      scope: "./",
+      updateViaCache: "none",
+    })
+      .then((registration) => registration.active ? registration : navigator.serviceWorker.ready)
+      .then((registration) => {
+        preparedPushServiceWorker = registration;
+        return registration;
+      })
+      .catch((error) => {
+        pushServiceWorkerPromise = null;
+        preparedPushServiceWorker = null;
+        throw error;
+      });
+  }
+  return pushServiceWorkerPromise;
+}
+
+function warmPushServiceWorker() {
+  if (!canSetUpPushNotifications()) return;
+  void pushServiceWorkerRegistration().catch((error) => {
+    // Registration is intentionally done before a person asks to receive
+    // alerts. If it cannot prepare, the setup button explains the retry.
+    console.warn("Couldn’t prepare notifications for this device.", error);
   });
-  return registration.active ? registration : navigator.serviceWorker.ready;
+}
+
+function startPushSubscriptionFromGesture() {
+  const registration = preparedPushServiceWorker?.active ? preparedPushServiceWorker : null;
+  if (!registration) return null;
+  // Keep this call itself synchronous with the profile button click. WebKit
+  // requires PushManager.subscribe() to be directly user initiated on iPhone.
+  return registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: base64UrlToUint8Array(PUSH_VAPID_PUBLIC_KEY),
+  });
 }
 
 async function storePushSubscription(subscription, userId = state.user?.uid) {
@@ -1504,26 +1543,47 @@ async function setNotificationPreference(enabled) {
 
 async function requestNotificationPermission() {
   if (!state.notificationsEnabled) return;
+  if (needsIosHomeScreenApp()) {
+    notificationStatus.textContent = "Add Resonance to your Home Screen, then open it there to turn on notifications.";
+    renderNotificationPreference({ preserveStatus: true });
+    return;
+  }
   if (!canSetUpPushNotifications()) {
     notificationStatus.textContent = "Notifications aren’t available in this browser.";
     renderNotificationPreference({ preserveStatus: true });
     return;
   }
-  state.notificationPreferenceSaving = true;
-  renderNotificationPreference();
+
+  const userId = state.user?.uid;
+  if (!userId) return;
+  let subscriptionPromise = null;
   try {
-    let permission = notificationPermission();
-    if (permission === "default") permission = await Notification.requestPermission();
-    if (permission !== "granted") {
-      notificationStatus.textContent = permission === "denied"
-        ? "Notifications are blocked in this browser."
-        : "Notifications weren’t turned on.";
-      return;
-    }
-    await subscribeCurrentDevice();
+    subscriptionPromise = startPushSubscriptionFromGesture();
   } catch (error) {
     console.error(error);
     notificationStatus.textContent = "Couldn’t turn on notifications. Try again.";
+    renderNotificationPreference({ preserveStatus: true });
+    return;
+  }
+  if (!subscriptionPromise) {
+    notificationStatus.textContent = "Getting this device ready. Tap Turn on notifications once more.";
+    renderNotificationPreference({ preserveStatus: true });
+    warmPushServiceWorker();
+    return;
+  }
+
+  state.notificationPreferenceSaving = true;
+  renderNotificationPreference();
+  try {
+    const subscription = await subscriptionPromise;
+    if (state.user?.uid !== userId || !state.notificationsEnabled) return;
+    await storePushSubscription(subscription, userId);
+    if (state.user?.uid === userId) state.pushSubscriptionReady = true;
+  } catch (error) {
+    console.error(error);
+    notificationStatus.textContent = notificationPermission() === "denied"
+      ? "Notifications are blocked in this browser."
+      : "Couldn’t turn on notifications. Try again.";
   } finally {
     state.notificationPreferenceSaving = false;
     renderNotificationPreference({ preserveStatus: Boolean(notificationStatus.textContent) });
@@ -1586,6 +1646,7 @@ function clearCommunitySubscription() {
 }
 
 function clearPlaylistSubscriptions() {
+  clearFeedSubscription();
   if (state.memberUnsubscribe) state.memberUnsubscribe();
   if (state.playlistUnsubscribe) state.playlistUnsubscribe();
   state.memberUnsubscribe = null;
@@ -2090,18 +2151,22 @@ function subscribeToActiveMembers() {
 function subscribeToPlaylistShares() {
   clearFeedSubscription();
   if (!state.activePlaylist) return;
+  const playlistId = state.activePlaylist.id;
   feedStatus.textContent = "Loading songs…";
   feedCount.textContent = "";
   const sharesQuery = query(
-    collection(db, "sharedPlaylists", state.activePlaylist.id, "shares"),
+    collection(db, "sharedPlaylists", playlistId, "shares"),
     orderBy("createdAt", "desc")
   );
   state.feedUnsubscribe = onSnapshot(sharesQuery, (snapshot) => {
-    if (!state.activePlaylist) return;
+    // Firestore can deliver a snapshot that was already queued just as a
+    // person switches playlists. Never let that older listener paint its
+    // songs into the newly active playlist.
+    if (state.activePlaylist?.id !== playlistId) return;
     state.shares = snapshot.docs.map((document) => ({ id: document.id, ...document.data() }));
     const tracks = playlistTracks(state.shares);
-    playlistSongTotals.set(state.activePlaylist.id, tracks.length);
-    playlistArtworkPreviews.set(state.activePlaylist.id, tracks.slice(0, 4));
+    playlistSongTotals.set(playlistId, tracks.length);
+    playlistArtworkPreviews.set(playlistId, tracks.slice(0, 4));
     renderPlaylistMastheadArtwork();
     renderPlaylistDetails();
     if (memberDialog.open) renderMemberDialog();
@@ -2110,6 +2175,7 @@ function subscribeToPlaylistShares() {
     refreshAppleMusicLinks();
     scheduleFeedPreviewRefresh();
   }, (error) => {
+    if (state.activePlaylist?.id !== playlistId) return;
     console.error(error);
     feedStatus.textContent = "";
     feedCount.textContent = "";
@@ -2968,6 +3034,9 @@ window.addEventListener("popstate", () => {
 });
 
 showAuth("signUp");
+// Installing a worker never asks for permission. Preparing it here means the
+// later subscribe call stays directly tied to the person's profile-button tap.
+warmPushServiceWorker();
 
 void authPersistenceReady.finally(() => {
   onAuthStateChanged(auth, (user) => {
