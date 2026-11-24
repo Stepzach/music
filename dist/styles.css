@@ -228,7 +228,7 @@ html.is-route-loading.is-route-revealing .page-shell {
   height: 100%;
   padding: 1px;
   grid-template-columns: repeat(2, 26px);
-  column-gap: 9px;
+  column-gap: 6px;
 }
 
 .theme-toggle-thumb {
@@ -248,7 +248,7 @@ html.is-route-loading.is-route-revealing .page-shell {
 }
 
 .theme-toggle[data-theme="dark"] .theme-toggle-thumb {
-  transform: translateX(35px);
+  transform: translateX(32px);
 }
 
 .theme-toggle-option {
