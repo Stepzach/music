@@ -38,7 +38,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300..700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
-    <link rel="stylesheet" href="./styles.css?v=20261120-20" />
+    <link rel="stylesheet" href="./styles.css?v=20261124-1" />
   </head>
   <body>
     <a class="skip-link" href="#app-root">Skip to the app</a>
@@ -55,7 +55,7 @@
       <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch to dark mode" aria-pressed="false" title="Switch to dark mode" data-theme="light">
         <span class="theme-toggle-track" aria-hidden="true">
           <span class="theme-toggle-thumb"></span>
-          <span class="theme-toggle-option theme-toggle-sun"><i class="fa-solid fa-star"></i></span>
+          <span class="theme-toggle-option theme-toggle-sun"><i class="fa-solid fa-sun"></i></span>
           <span class="theme-toggle-option theme-toggle-moon"><i class="fa-solid fa-moon"></i></span>
         </span>
       </button>
@@ -331,19 +331,6 @@
             <input id="account-name" type="text" maxlength="10" autocomplete="name" required />
           </label>
           <p class="account-email"><span>Email</span><strong id="account-email"></strong></p>
-          <section class="notification-preference" aria-labelledby="notification-preference-title">
-            <div class="notification-preference-copy">
-              <strong id="notification-preference-title">Song notifications</strong>
-              <p id="notification-description">On by default.</p>
-            </div>
-            <label class="notification-switch" for="notification-enabled">
-              <input id="notification-enabled" type="checkbox" role="switch" checked />
-              <span class="notification-switch-track" aria-hidden="true"><span class="notification-switch-thumb"></span></span>
-              <span class="visually-hidden">Song notifications</span>
-            </label>
-          </section>
-          <button id="enable-notifications" class="text-action compact notification-permission" type="button" hidden>Turn on notifications</button>
-          <p id="notification-status" class="form-status notification-status" aria-live="polite"></p>
           <button id="account-save" class="share-button" type="submit">Save</button>
           <p id="account-status" class="form-status" aria-live="polite"></p>
         </form>
@@ -353,6 +340,6 @@
 
     <audio id="preview-audio" preload="none"></audio>
     <div id="toast-root" class="toast-root" aria-live="polite" aria-atomic="true"></div>
-    <script type="module" src="./app.js?v=20261121-1"></script>
+    <script type="module" src="./app.js?v=20261124-1"></script>
   </body>
 </html>

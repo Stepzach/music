@@ -6,15 +6,6 @@
 //   uid (immutable), displayName, createdAt (immutable), updatedAt
 //   This is private account data. Email addresses are never stored here.
 //
-// profiles/{uid}/notificationSettings/song-shares
-//   enabled, updatedAt
-//   Optional private account preference. A missing document means enabled.
-//
-// profiles/{uid}/pushSubscriptions/{opaqueDeviceId}
-//   endpoint, p256dh, auth, createdAt (immutable), updatedAt
-//   Private Web Push capability data for that account only. It is never
-//   exposed to playlist members or written into shared playlist documents.
-//
 // playlistCodes/{fourDigitCode}
 //   playlistId, playlistName, createdAt (immutable)
 //   A direct invitation lookup. Four-digit codes are convenient rather than
@@ -280,39 +271,6 @@ service cloud.firestore {
         timestampIsNow(data.createdAt);
     }
 
-    // A browser PushSubscription is a private capability: anyone holding its
-    // endpoint and keys can ask the push service to deliver a message. Keep
-    // it in the account owner's private subtree, with a deliberately small
-    // schema and no device or browser fingerprinting data.
-    function validPushEndpoint(value) {
-      return validString(value, 12, 2048) && value.matches('^https://.*');
-    }
-
-    function validBase64Url(value, minimum, maximum) {
-      return validString(value, minimum, maximum) &&
-        value.matches('^[A-Za-z0-9_-]+$');
-    }
-
-    function validPushDeviceId(deviceId) {
-      return deviceId is string &&
-        deviceId.matches('^[A-Za-z0-9_-]{16,128}$');
-    }
-
-    function isValidPushSubscription(data) {
-      return data is map &&
-        hasExactKeys(data, ['endpoint', 'p256dh', 'auth', 'createdAt', 'updatedAt']) &&
-        validPushEndpoint(data.endpoint) &&
-        validBase64Url(data.p256dh, 64, 512) &&
-        validBase64Url(data.auth, 16, 256) &&
-        data.createdAt is timestamp && data.updatedAt is timestamp;
-    }
-
-    function isValidNotificationSetting(data) {
-      return data is map &&
-        hasExactKeys(data, ['enabled', 'updatedAt']) &&
-        data.enabled is bool && data.updatedAt is timestamp;
-    }
-
     // =============================================================
     // Private profile documents
     // =============================================================
@@ -333,41 +291,6 @@ service cloud.firestore {
         timestampIsNow(request.resource.data.updatedAt);
       allow delete: if false;
 
-      // This document is intentionally optional. Its absence means song
-      // notifications are on, which makes the account preference default to
-      // enabled without changing legacy profile records.
-      match /notificationSettings/{settingId} {
-        allow get: if isOwner(userId) && settingId == 'song-shares';
-        allow list: if false;
-        allow create: if isOwner(userId) &&
-          settingId == 'song-shares' &&
-          isValidNotificationSetting(request.resource.data) &&
-          timestampIsNow(request.resource.data.updatedAt);
-        allow update: if isOwner(userId) &&
-          settingId == 'song-shares' &&
-          isValidNotificationSetting(request.resource.data) &&
-          request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['enabled', 'updatedAt']) &&
-          timestampIsNow(request.resource.data.updatedAt);
-        allow delete: if isOwner(userId) && settingId == 'song-shares';
-      }
-
-      match /pushSubscriptions/{deviceId} {
-        allow get, list: if isOwner(userId);
-        allow create: if isOwner(userId) &&
-          validPushDeviceId(deviceId) &&
-          isValidPushSubscription(request.resource.data) &&
-          timestampIsNow(request.resource.data.createdAt) &&
-          timestampIsNow(request.resource.data.updatedAt);
-        allow update: if isOwner(userId) &&
-          validPushDeviceId(deviceId) &&
-          isValidPushSubscription(request.resource.data) &&
-          request.resource.data.createdAt == resource.data.createdAt &&
-          request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['endpoint', 'p256dh', 'auth', 'updatedAt']) &&
-          timestampIsNow(request.resource.data.updatedAt);
-        allow delete: if isOwner(userId);
-      }
     }
 
     // =============================================================

@@ -71,10 +71,6 @@ const accountEmail = $("#account-email");
 const accountSaveButton = $("#account-save");
 const accountStatus = $("#account-status");
 const accountSignOut = $("#account-sign-out");
-const notificationEnabledInput = $("#notification-enabled");
-const notificationDescription = $("#notification-description");
-const notificationPermissionButton = $("#enable-notifications");
-const notificationStatus = $("#notification-status");
 const yourPlaylistList = $("#your-playlist-list");
 const communityPlaylistList = $("#community-playlist-list");
 const homeStatus = $("#home-status");
@@ -140,11 +136,6 @@ const MAX_TRACKS_PER_SHARE = 12;
 const SITE_TITLE = "Resonance";
 const SITE_DESCRIPTION = "Shared playlists for the people you love.";
 const GITHUB_APP_URL = "https://stepzach.github.io/music/";
-// This is the public half of the Web Push key pair. It is safe to publish; the
-// private half lives only in the Firebase Function secret.
-const PUSH_VAPID_PUBLIC_KEY = "zkbrU3iKHrJFnHpW_5fEk1EY2f-s4XdU2h_yBBJU4yYTo0YBBk9DiYLMUvoCzvvQwU0FGre3qSk3Dy8EmBMLoA";
-const PUSH_SETTING_ID = "song-shares";
-const PUSH_SERVICE_WORKER_URL = "./service-worker.js?v=20261121-1";
 
 if ("scrollRestoration" in window.history) {
   window.history.scrollRestoration = "manual";
@@ -165,10 +156,6 @@ const state = {
   shares: [],
   user: null,
   profile: null,
-  notificationsEnabled: true,
-  notificationPreferenceLoaded: false,
-  notificationPreferenceSaving: false,
-  pushSubscriptionReady: false,
   memberships: [],
   communityPlaylists: [],
   activePlaylist: null,
@@ -196,8 +183,6 @@ const playlistSongTotalRequests = new Map();
 const playlistSongTotals = new Map();
 const playlistArtworkPreviews = new Map();
 const playlistOwnerNameRequests = new Map();
-let pushServiceWorkerPromise = null;
-let preparedPushServiceWorker = null;
 
 function automaticTheme(now = new Date()) {
   const hour = now.getHours();
@@ -1250,344 +1235,11 @@ function updateAccountLabels() {
   accountEmail.textContent = cleanText(state.user?.email, 160) || "No email saved";
 }
 
-function browserSupportsPushNotifications() {
-  return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
-}
-
-function needsIosHomeScreenApp() {
-  return isIosDevice() && !isStandaloneApp();
-}
-
-function canSetUpPushNotifications() {
-  return browserSupportsPushNotifications() && Boolean(PUSH_VAPID_PUBLIC_KEY) && !needsIosHomeScreenApp();
-}
-
-function notificationSettingsRef(userId = state.user?.uid) {
-  return userId ? doc(db, "profiles", userId, "notificationSettings", PUSH_SETTING_ID) : null;
-}
-
-function pushSubscriptionsRef(userId = state.user?.uid) {
-  return userId ? collection(db, "profiles", userId, "pushSubscriptions") : null;
-}
-
-function notificationPermission() {
-  return browserSupportsPushNotifications() ? Notification.permission : "unsupported";
-}
-
-function isIosDevice() {
-  const platform = navigator.platform || "";
-  return /iPad|iPhone|iPod/.test(navigator.userAgent) || (platform === "MacIntel" && navigator.maxTouchPoints > 1);
-}
-
-function isStandaloneApp() {
-  return Boolean(window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone);
-}
-
-function notificationDescriptionText() {
-  if (!state.user || !state.profile) return "";
-  if (!state.notificationPreferenceLoaded) return "Loading…";
-  if (!state.notificationsEnabled) return "Off.";
-  if (needsIosHomeScreenApp()) return "Add Resonance to your Home Screen to turn these on.";
-  if (!browserSupportsPushNotifications()) return "Notifications aren’t available in this browser.";
-  if (!PUSH_VAPID_PUBLIC_KEY) return "Notifications will be ready soon.";
-
-  const permission = notificationPermission();
-  if (permission === "denied") return "Notifications are blocked in this browser.";
-  if (permission === "granted" && state.pushSubscriptionReady) return "On for this device.";
-  return "Turn these on for this device.";
-}
-
-function renderNotificationPreference({ preserveStatus = false } = {}) {
-  if (!notificationEnabledInput) return;
-  const permission = notificationPermission();
-  const canAskForPermission = state.notificationPreferenceLoaded
-    && state.notificationsEnabled
-    && canSetUpPushNotifications()
-    && permission !== "denied"
-    && !state.pushSubscriptionReady;
-
-  notificationEnabledInput.checked = state.notificationsEnabled;
-  notificationEnabledInput.disabled = !state.user || !state.notificationPreferenceLoaded || state.notificationPreferenceSaving;
-  notificationDescription.textContent = notificationDescriptionText();
-  notificationPermissionButton.hidden = !canAskForPermission;
-  notificationPermissionButton.disabled = state.notificationPreferenceSaving;
-  if (!preserveStatus) notificationStatus.textContent = "";
-}
-
-function base64UrlToUint8Array(value) {
-  const base64Url = String(value || "").trim();
-  const padding = "=".repeat((4 - (base64Url.length % 4)) % 4);
-  const base64 = `${base64Url}${padding}`.replace(/-/g, "+").replace(/_/g, "/");
-  const raw = window.atob(base64);
-  return Uint8Array.from(raw, (character) => character.charCodeAt(0));
-}
-
-function normalizeBase64Url(value) {
-  return String(value || "").trim().replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
-function arrayBufferToBase64Url(value) {
-  if (!value) return "";
-  const bytes = new Uint8Array(value);
-  let binary = "";
-  bytes.forEach((byte) => {
-    binary += String.fromCharCode(byte);
-  });
-  return normalizeBase64Url(window.btoa(binary));
-}
-
-async function pushSubscriptionId(endpoint) {
-  const source = new TextEncoder().encode(endpoint);
-  if (globalThis.crypto?.subtle) {
-    const digest = await globalThis.crypto.subtle.digest("SHA-256", source);
-    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-  }
-  // Older browsers without Web Crypto still get a deterministic, opaque path.
-  return `push-${window.btoa(endpoint).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "").slice(0, 120)}`;
-}
-
-function serializedPushSubscription(subscription) {
-  const json = subscription?.toJSON?.() || {};
-  const endpoint = String(subscription?.endpoint || "").trim();
-  const p256dh = normalizeBase64Url(json.keys?.p256dh) ||
-    arrayBufferToBase64Url(subscription?.getKey?.("p256dh"));
-  const auth = normalizeBase64Url(json.keys?.auth) ||
-    arrayBufferToBase64Url(subscription?.getKey?.("auth"));
-  if (!endpoint.startsWith("https://") || !p256dh || !auth) {
-    throw new Error("This device couldn’t set up notifications.");
-  }
-  return { endpoint, p256dh, auth };
-}
-
-function pushServiceWorkerRegistration() {
-  if (!browserSupportsPushNotifications()) throw new Error("Notifications aren’t available in this browser.");
-  if (preparedPushServiceWorker?.active) return Promise.resolve(preparedPushServiceWorker);
-  if (preparedPushServiceWorker && !preparedPushServiceWorker.active) {
-    preparedPushServiceWorker = null;
-    pushServiceWorkerPromise = null;
-  }
-  if (!pushServiceWorkerPromise) {
-    pushServiceWorkerPromise = navigator.serviceWorker.register(PUSH_SERVICE_WORKER_URL, {
-      scope: "./",
-      updateViaCache: "none",
-    })
-      .then((registration) => registration.active ? registration : navigator.serviceWorker.ready)
-      .then((registration) => {
-        preparedPushServiceWorker = registration;
-        return registration;
-      })
-      .catch((error) => {
-        pushServiceWorkerPromise = null;
-        preparedPushServiceWorker = null;
-        throw error;
-      });
-  }
-  return pushServiceWorkerPromise;
-}
-
-function warmPushServiceWorker() {
-  if (!canSetUpPushNotifications()) return;
-  void pushServiceWorkerRegistration().catch((error) => {
-    // Registration is intentionally done before a person asks to receive
-    // alerts. If it cannot prepare, the setup button explains the retry.
-    console.warn("Couldn’t prepare notifications for this device.", error);
-  });
-}
-
-function startPushSubscriptionFromGesture() {
-  const registration = preparedPushServiceWorker?.active ? preparedPushServiceWorker : null;
-  if (!registration) return null;
-  // Keep this call itself synchronous with the profile button click. WebKit
-  // requires PushManager.subscribe() to be directly user initiated on iPhone.
-  return registration.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: base64UrlToUint8Array(PUSH_VAPID_PUBLIC_KEY),
-  });
-}
-
-async function storePushSubscription(subscription, userId = state.user?.uid) {
-  if (!userId) throw new Error("Sign in first.");
-  const data = serializedPushSubscription(subscription);
-  const subscriptionId = await pushSubscriptionId(data.endpoint);
-  const subscriptionRef = doc(pushSubscriptionsRef(userId), subscriptionId);
-  const existing = await getDoc(subscriptionRef);
-  if (existing.exists()) {
-    await setDoc(subscriptionRef, {
-      ...data,
-      updatedAt: serverTimestamp(),
-    }, { merge: true });
-    return subscriptionId;
-  }
-  await setDoc(subscriptionRef, {
-    ...data,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
-  return subscriptionId;
-}
-
-async function syncExistingPushSubscription() {
-  const userId = state.user?.uid;
-  if (!userId || !state.notificationsEnabled || notificationPermission() !== "granted" || !canSetUpPushNotifications()) return;
-  try {
-    const registration = await pushServiceWorkerRegistration();
-    const subscription = await registration.pushManager.getSubscription();
-    if (!subscription) return;
-    if (state.user?.uid !== userId || !state.notificationsEnabled) return;
-    await storePushSubscription(subscription, userId);
-    if (state.user?.uid === userId) {
-      state.pushSubscriptionReady = true;
-      renderNotificationPreference();
-    }
-  } catch (error) {
-    // A stored permission can outlive a browser's Push API setup. Do not turn
-    // off the person's preference for that temporary device problem.
-    console.warn("Couldn’t refresh this device’s notification subscription.", error);
-  }
-}
-
-async function subscribeCurrentDevice() {
-  if (!canSetUpPushNotifications()) throw new Error("Notifications aren’t available in this browser.");
-  const userId = state.user?.uid;
-  if (!userId) throw new Error("Sign in first.");
-  const registration = await pushServiceWorkerRegistration();
-  if (state.user?.uid !== userId || !state.notificationsEnabled) return;
-  let subscription = await registration.pushManager.getSubscription();
-  if (!subscription) {
-    subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: base64UrlToUint8Array(PUSH_VAPID_PUBLIC_KEY),
-    });
-  }
-  if (state.user?.uid !== userId || !state.notificationsEnabled) return;
-  await storePushSubscription(subscription, userId);
-  if (state.user?.uid === userId) state.pushSubscriptionReady = true;
-}
-
-async function removeCurrentPushSubscription() {
-  const userId = state.user?.uid;
-  if (!userId || !browserSupportsPushNotifications()) return;
-  const registration = await navigator.serviceWorker.getRegistration("./") || await navigator.serviceWorker.getRegistration();
-  const subscription = await registration?.pushManager?.getSubscription();
-  if (!subscription) return;
-  const subscriptionId = await pushSubscriptionId(String(subscription.endpoint || ""));
-  try {
-    await deleteDoc(doc(pushSubscriptionsRef(userId), subscriptionId));
-  } finally {
-    await subscription.unsubscribe();
-  }
-}
-
-async function loadNotificationPreference() {
-  const userId = state.user?.uid;
-  if (!userId) return;
-  state.notificationPreferenceLoaded = false;
-  state.notificationsEnabled = true;
-  state.pushSubscriptionReady = false;
-  renderNotificationPreference();
-  try {
-    const snapshot = await getDoc(notificationSettingsRef(userId));
-    if (state.user?.uid !== userId) return;
-    state.notificationsEnabled = snapshot.exists() ? snapshot.data().enabled !== false : true;
-  } catch (error) {
-    console.warn("Couldn’t load notification preferences.", error);
-  } finally {
-    if (state.user?.uid === userId) {
-      state.notificationPreferenceLoaded = true;
-      renderNotificationPreference();
-      void syncExistingPushSubscription();
-    }
-  }
-}
-
-async function setNotificationPreference(enabled) {
-  if (!state.user) return;
-  const previousValue = state.notificationsEnabled;
-  state.notificationsEnabled = Boolean(enabled);
-  state.notificationPreferenceSaving = true;
-  renderNotificationPreference();
-  try {
-    await setDoc(notificationSettingsRef(), {
-      enabled: state.notificationsEnabled,
-      updatedAt: serverTimestamp(),
-    });
-  } catch (error) {
-    state.notificationsEnabled = previousValue;
-    notificationStatus.textContent = "Couldn’t update notifications. Try again.";
-    console.error(error);
-    state.notificationPreferenceSaving = false;
-    renderNotificationPreference({ preserveStatus: true });
-    return;
-  }
-
-  state.notificationPreferenceLoaded = true;
-  try {
-    if (!state.notificationsEnabled) {
-      await removeCurrentPushSubscription();
-      state.pushSubscriptionReady = false;
-    } else if (notificationPermission() === "granted") {
-      await subscribeCurrentDevice();
-    }
-  } catch (error) {
-    // The preference already saved. Keep it true/false even if this one device
-    // needs another try to register or remove its browser subscription.
-    notificationStatus.textContent = state.notificationsEnabled
-      ? "Notifications are on, but this device couldn’t finish setup. Try again."
-      : "Notifications are off, but this device couldn’t finish cleanup.";
-    console.error(error);
-  } finally {
-    state.notificationPreferenceSaving = false;
-    renderNotificationPreference({ preserveStatus: Boolean(notificationStatus.textContent) });
-  }
-}
-
-async function requestNotificationPermission() {
-  if (!state.notificationsEnabled) return;
-  if (needsIosHomeScreenApp()) {
-    notificationStatus.textContent = "Add Resonance to your Home Screen, then open it there to turn on notifications.";
-    renderNotificationPreference({ preserveStatus: true });
-    return;
-  }
-  if (!canSetUpPushNotifications()) {
-    notificationStatus.textContent = "Notifications aren’t available in this browser.";
-    renderNotificationPreference({ preserveStatus: true });
-    return;
-  }
-
-  const userId = state.user?.uid;
-  if (!userId) return;
-  let subscriptionPromise = null;
-  try {
-    subscriptionPromise = startPushSubscriptionFromGesture();
-  } catch (error) {
-    console.error(error);
-    notificationStatus.textContent = "Couldn’t turn on notifications. Try again.";
-    renderNotificationPreference({ preserveStatus: true });
-    return;
-  }
-  if (!subscriptionPromise) {
-    notificationStatus.textContent = "Getting this device ready. Tap Turn on notifications once more.";
-    renderNotificationPreference({ preserveStatus: true });
-    warmPushServiceWorker();
-    return;
-  }
-
-  state.notificationPreferenceSaving = true;
-  renderNotificationPreference();
-  try {
-    const subscription = await subscriptionPromise;
-    if (state.user?.uid !== userId || !state.notificationsEnabled) return;
-    await storePushSubscription(subscription, userId);
-    if (state.user?.uid === userId) state.pushSubscriptionReady = true;
-  } catch (error) {
-    console.error(error);
-    notificationStatus.textContent = notificationPermission() === "denied"
-      ? "Notifications are blocked in this browser."
-      : "Couldn’t turn on notifications. Try again.";
-  } finally {
-    state.notificationPreferenceSaving = false;
-    renderNotificationPreference({ preserveStatus: Boolean(notificationStatus.textContent) });
-  }
+function retireLegacyServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  void navigator.serviceWorker.getRegistration("./")
+    .then((registration) => registration?.unregister())
+    .catch(() => undefined);
 }
 
 function showAuth(mode = "signUp") {
@@ -2618,12 +2270,10 @@ function setPlaylistSettingsOpen(open) {
 
 function setAccountDialogOpen(open) {
   accountStatus.textContent = "";
-  notificationStatus.textContent = "";
   if (open) {
     if (!state.user || !state.profile) return;
     accountNameInput.value = cleanText(state.profile.displayName, 10);
     accountEmail.textContent = cleanText(state.user.email, 160) || "No email saved";
-    renderNotificationPreference();
     if (!accountDialog.open) accountDialog.showModal();
     return;
   }
@@ -2739,7 +2389,6 @@ async function saveProfile(user, name) {
   state.user = user;
   state.profile = { displayName };
   updateAccountLabels();
-  void loadNotificationPreference();
   startMembershipListener();
   startCommunityListener();
   await showResolvedDestination();
@@ -2767,12 +2416,7 @@ async function activateUser(user) {
   playlistOwnerNameRequests.clear();
   state.user = user || null;
   state.profile = null;
-  state.notificationsEnabled = true;
-  state.notificationPreferenceLoaded = false;
-  state.notificationPreferenceSaving = false;
-  state.pushSubscriptionReady = false;
   updateAccountLabels();
-  renderNotificationPreference();
 
   if (!user) {
     showAuth("signUp");
@@ -2793,7 +2437,6 @@ async function activateUser(user) {
     }
     state.profile = profileSnapshot.data();
     updateAccountLabels();
-    void loadNotificationPreference();
     startMembershipListener();
     startCommunityListener();
     await showResolvedDestination();
@@ -2852,11 +2495,6 @@ authForm.addEventListener("submit", async (event) => {
 async function handleSignOut() {
   try {
     setAccountDialogOpen(false);
-    // This leaves the account-wide preference alone, but makes sure a shared
-    // browser cannot keep receiving the prior account's private alerts.
-    await removeCurrentPushSubscription().catch((error) => {
-      console.warn("Couldn’t remove this device’s notification subscription.", error);
-    });
     await signOut(auth);
   } catch (error) {
     console.error(error);
@@ -2867,12 +2505,6 @@ async function handleSignOut() {
 accountTrigger.addEventListener("click", () => setAccountDialogOpen(true));
 closeAccountDialog.addEventListener("click", () => setAccountDialogOpen(false));
 accountSignOut.addEventListener("click", handleSignOut);
-notificationEnabledInput.addEventListener("change", () => {
-  void setNotificationPreference(notificationEnabledInput.checked);
-});
-notificationPermissionButton.addEventListener("click", () => {
-  void requestNotificationPermission();
-});
 
 accountForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -3034,9 +2666,7 @@ window.addEventListener("popstate", () => {
 });
 
 showAuth("signUp");
-// Installing a worker never asks for permission. Preparing it here means the
-// later subscribe call stays directly tied to the person's profile-button tap.
-warmPushServiceWorker();
+retireLegacyServiceWorker();
 
 void authPersistenceReady.finally(() => {
   onAuthStateChanged(auth, (user) => {
