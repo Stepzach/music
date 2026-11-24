@@ -1,15 +1,10 @@
 const { onRequest } = require("firebase-functions/v2/https");
-const { getApps, initializeApp } = require("firebase-admin/app");
-const { getFirestore } = require("firebase-admin/firestore");
 
 const APP_URL = "https://stepzach.github.io/music/";
 const SHARE_URL = "https://resonance-1bf87.web.app/share";
 const ICON_URL = "https://stepzach.github.io/music/assets/disco-ball-icon.png?v=3";
 const SITE_TITLE = "Resonance";
 const SITE_DESCRIPTION = "Shared playlists for the people you love.";
-if (!getApps().length) initializeApp();
-const firestore = getFirestore();
-
 function cleanText(value, maxLength = 60) {
   const source = Array.isArray(value) ? value[0] : value;
   return String(source || "")
