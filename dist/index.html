@@ -55,7 +55,12 @@
       <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch to dark mode" aria-pressed="false" title="Switch to dark mode" data-theme="light">
         <span class="theme-toggle-track" aria-hidden="true">
           <span class="theme-toggle-thumb"></span>
-          <span class="theme-toggle-option theme-toggle-sun"><i class="fa-solid fa-sun"></i></span>
+          <span class="theme-toggle-option theme-toggle-sun">
+            <svg class="theme-toggle-sun-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <circle cx="12" cy="12" r="3.5"></circle>
+              <path d="M12 2.5v2M12 19.5v2M4.5 4.5l1.4 1.4M18.1 18.1l1.4 1.4M2.5 12h2M19.5 12h2M4.5 19.5l1.4-1.4M18.1 5.9l1.4-1.4"></path>
+            </svg>
+          </span>
           <span class="theme-toggle-option theme-toggle-moon"><i class="fa-solid fa-moon"></i></span>
         </span>
       </button>

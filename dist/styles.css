@@ -268,6 +268,17 @@ html.is-route-loading.is-route-revealing .page-shell {
   transition: color .18s ease, opacity .18s ease;
 }
 
+.theme-toggle-sun-icon {
+  display: block;
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
 .theme-toggle[data-theme="light"] .theme-toggle-sun,
 .theme-toggle[data-theme="dark"] .theme-toggle-moon {
   color: var(--ink);
