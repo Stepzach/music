@@ -10,7 +10,7 @@
   "theme_color": "#ffffff",
   "icons": [
     {
-      "src": "./assets/disco-ball-icon.png?v=3",
+      "src": "./assets/disco-ball-icon.png?v=4",
       "sizes": "1024x1024",
       "type": "image/png",
       "purpose": "any maskable"

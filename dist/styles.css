@@ -276,7 +276,11 @@ html.is-route-loading.is-route-revealing .page-shell {
   stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 1.8;
+  stroke-width: 2.15;
+}
+
+.theme-toggle-sun-core {
+  fill: currentColor;
 }
 
 .theme-toggle[data-theme="light"] .theme-toggle-sun,
