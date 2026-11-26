@@ -45,6 +45,8 @@ const PALETTE = {
     return;
   }
 
+  // A decorative embed can opt into the settled motion from its first frame.
+  const steadyMotion = document.documentElement.dataset.discoMotion === 'steady';
   const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
 
   // ---------- Inject styles ----------
@@ -551,7 +553,8 @@ const PALETTE = {
   const SPIN_IDLE = 0.16;     // about 1.5 turns a minute
   const SPIN_FAST = 0.55;     // a gentle push on hover or tap
   const SPIN_PARTY = 0.32;    // about 3 turns a minute while the music plays
-  let spinSpeed = SPIN_IDLE;
+  const CALM_SPIN_REDUCTION = 0.65;
+  let spinSpeed = steadyMotion ? SPIN_IDLE * (1 - CALM_SPIN_REDUCTION) : SPIN_IDLE;
   let targetSpeed = SPIN_IDLE;
   let burstTimer = 0;
   const el = renderer.domElement;
@@ -590,7 +593,8 @@ const PALETTE = {
   // Settling: after 30 s with no pointer, touch, key or scroll, the party calms down.
   const CALM_AFTER = 30000;
   let lastActivity = performance.now();
-  let calm = false, calmMix = 0;
+  let calm = steadyMotion, calmMix = steadyMotion ? 1 : 0;
+  let activeTimeMs = 0;
 
   // ---------- Party mode: the page sends 'disco:party' with on/off and a beat clock ----------
   let partyClock = null;                                      // function returning the music's beat (float)
@@ -629,8 +633,10 @@ const PALETTE = {
 
   function animate() {
     if (!running) return;
-    const dt = Math.min(clock.getDelta(), 0.05);
-    const now = performance.now();
+    const elapsed = clock.getDelta();
+    const dt = Math.min(elapsed, 0.05);
+    activeTimeMs += elapsed * 1000;
+    const now = steadyMotion ? activeTimeMs : performance.now();
 
     // party: follow the music's beat
     // the party fades in (and out) gently, over about two seconds
@@ -655,9 +661,11 @@ const PALETTE = {
       aimFixtures(dt, now, c.x, c.y, window.innerWidth, window.innerHeight, (size / 2) * ballFrac,
                   partyClock ? partyClock() : lastBeatIdx);
     }
-    const baseSpin = partyClock ? Math.max(targetSpeed, SPIN_PARTY) : targetSpeed;
-    spinSpeed += (baseSpin * (1 - 0.65 * calmMix) - spinSpeed) * Math.min(dt * 4, 1);
-    ball.rotation.y += spinSpeed * dt;
+    if (!steadyMotion) {
+      const baseSpin = partyClock ? Math.max(targetSpeed, SPIN_PARTY) : targetSpeed;
+      spinSpeed += (baseSpin * (1 - CALM_SPIN_REDUCTION * calmMix) - spinSpeed) * Math.min(dt * 4, 1);
+    }
+    ball.rotation.y += spinSpeed * (steadyMotion ? elapsed : dt);
     ball.rotation.x = Math.sin(now * 0.0002) * 0.12;
 
     const t = now * 0.0009;
@@ -678,7 +686,7 @@ const PALETTE = {
     });
 
     // settle when nobody has moved for a while: slower turn, softer sway, dimmer light
-    const wantCalm = now - lastActivity > CALM_AFTER;
+    const wantCalm = steadyMotion || now - lastActivity > CALM_AFTER;
     if (wantCalm !== calm) {
       calm = wantCalm;
       window.dispatchEvent(new CustomEvent('disco:calm', { detail: calm }));
@@ -687,8 +695,12 @@ const PALETTE = {
 
     // pendulum
     const sway = SWAY * (1 - 0.6 * calmMix) * Math.sin(now * 0.0011);
-    angVel += (-STIFF * (angle - sway) - DAMP * angVel) * dt;
-    angle = Math.max(-MAX_ANGLE, Math.min(MAX_ANGLE, angle + angVel * dt));
+    if (steadyMotion) {
+      angle = sway;
+    } else {
+      angVel += (-STIFF * (angle - sway) - DAMP * angVel) * dt;
+      angle = Math.max(-MAX_ANGLE, Math.min(MAX_ANGLE, angle + angVel * dt));
+    }
 
     const lightTarget = 1 - 0.6 * calmMix;                    // dims to 40% when calm
     if (landed) spotsAlpha += (lightTarget - spotsAlpha) * Math.min(dt / 0.8, 1);
@@ -735,7 +747,7 @@ const PALETTE = {
     drop.classList.add('is-in');
     const settle = () => {
       landed = true;
-      push(0.18);
+      if (!steadyMotion) push(0.18);
       if (!running) { spotsAlpha = 1; renderFrame(); }        // paused from a saved setting: hang still, lit
     };
     if (motionQuery.matches || window.__discoSkipEntrance) { settle(); return; }
